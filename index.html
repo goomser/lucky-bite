@@ -568,9 +568,11 @@ async function loadTile(key) {
   let recs;
   if (c && c.built === index.built) recs = c.recs;
   else {
-    const r = await fetch(DATA_URL + 'tiles/' + key + '.json');
+    const r = await fetch(DATA_URL + 'tiles/' + key + '.json.gz');
     if (!r.ok) throw new Error('tile ' + key + ' ' + r.status);
-    recs = await r.json();
+    // Tiles are gzipped on the server so the whole world fits in free hosting; inflate here.
+    const inflated = r.body.pipeThrough(new DecompressionStream('gzip'));
+    recs = JSON.parse(await new Response(inflated).text());
     idb.set('tile:' + key, { built: index.built, recs });
   }
   memTiles.set(key, recs);
@@ -663,7 +665,8 @@ async function farPoolFromTiles(radiusMi) {
     }
     if (recs) {
       const pool = filterPool(recs.map(fromRecord));
-      if (pool.length) return pool;
+      const onlyRepeat = pool.length === 1 && lastPick && pool[0].id === lastPick.id;
+      if (pool.length && !onlyRepeat) return pool;
     }
   }
   return [];

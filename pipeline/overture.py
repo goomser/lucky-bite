@@ -77,7 +77,8 @@ def main():
     phone_e = "phones[1]" if "phones" in cols else "NULL"
     web_e = "websites[1]" if "websites" in cols else "NULL"
     addr_e = "addresses[1].freeform" if "freeform" in cols.get("addresses", "") else "NULL"
-    where = [f"regexp_matches({cat}, '{EAT.pattern}', 'i')", "names.primary IS NOT NULL", "confidence >= 0.5"]
+    where = [f"regexp_matches({cat}, '{EAT.pattern}', 'i')", f"NOT regexp_matches({cat}, 'delivery|courier|catering|supplier|wholesale|equipment', 'i')",
+             "names.primary IS NOT NULL", "confidence >= 0.5"]
     if a.bbox:
         w, s, e, n = map(float, a.bbox.split(","))
         where.append(f"bbox.xmin >= {w} AND bbox.xmax <= {e} AND bbox.ymin >= {s} AND bbox.ymax <= {n}")

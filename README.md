@@ -6,7 +6,7 @@ Pull the handle, get a restaurant. Works anywhere on Earth, from one codebase, o
 
 - `index.html` is the whole app. No build step, no framework.
 - Restaurant data comes from OpenStreetMap merged with Overture Maps (Meta, Microsoft, Foursquare and other open listings),
-  prebuilt into small map tiles (`data/tiles/*.json`) so the app loads instantly.
+  prebuilt into small compressed map tiles (`data/tiles/*.json.gz`) so the app loads instantly.
   Tiles are cached on the device after first use. If no tiles are available (for example when you open `index.html` straight from
   your disk), the app falls back to a live OpenStreetMap search, which is slower.
 - `pipeline/` turns OpenStreetMap extracts (`extract.py`) and Overture's places dataset (`overture.py`) into those tiles
