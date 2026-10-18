@@ -219,6 +219,16 @@ legend, .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .12em
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
 .count { font-size: 13px; color: var(--cream); font-weight: 700; }
 
+/* ---------- Hit counter ---------- */
+.served { display: flex; justify-content: center; align-items: center; gap: 10px; padding-block: 10px 0; }
+.odometer { display: inline-flex; gap: 2px; padding: 3px; background: #111; border-radius: 4px; box-shadow: 0 1px 0 var(--brass-dk), inset 0 0 0 1px #333; }
+.odometer span {
+  display: inline-block; width: 15px; height: 22px; line-height: 22px; text-align: center;
+  font: 800 14px/22px var(--body); font-variant-numeric: tabular-nums; color: #fbf3e2;
+  background: linear-gradient(180deg, #2a2a2a, #000 55%, #1a1a1a); border-radius: 2px;
+}
+.odometer span.sep { width: 6px; background: none; color: var(--brass); }
+.servedLabel { font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); font-weight: 800; }
 footer { text-align: center; font-size: 11px; color: var(--muted); padding-block: 10px 8px; }
 footer a { color: var(--muted); }
 
@@ -264,6 +274,11 @@ footer a { color: var(--muted); }
     <button class="btn primary" id="spinBtn" type="button" disabled>Spin</button>
   </div>
 </main>
+
+<div class="served" id="served" hidden>
+  <span class="odometer" id="odometer" aria-live="polite"></span>
+  <span class="servedLabel">Lucky Bites served</span>
+</div>
 
 <footer>Restaurant data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors and <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps Foundation</a>. Prices are estimates where the data has none. <span id="dataNote"></span></footer>
 
@@ -1150,6 +1165,7 @@ async function spin() {
   });
 
   showResult(pick);
+  counter('hit');
   growStrip(); // add names below the pick so you can browse downward too
   spinning = false; bulbs('win'); updateCount();
   if (isFar()) prefetchFar(); // line up the next pull while they read this one
@@ -1177,6 +1193,24 @@ function showResult(p) {
   $('result').hidden = false;
   $('again').addEventListener('click', spin);
 }
+
+// ---------- Hit counter (a shared number, nothing else) ----------
+// Abacus is a free, no-signup counting service: one integer per key, no visitor data.
+const COUNTER = 'https://abacus.jasoncameron.dev/' + '{op}/luckybite-0nayd8/spins';
+function showServed(n) {
+  const digits = String(Math.max(0, n)).padStart(6, '0');
+  const withSeps = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  $('odometer').innerHTML = [...withSeps].map(c => `<span${c === ',' ? ' class="sep"' : ''}>${c}</span>`).join('');
+  $('served').hidden = false;
+}
+async function counter(op) {
+  try {
+    const r = await fetch(COUNTER.replace('{op}', op), { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    showServed((await r.json()).value);
+  } catch { /* counter service unreachable: leave it hidden */ }
+}
+counter('get');
 
 // ---------- Wiring ----------
 $('lever').addEventListener('click', spin);
