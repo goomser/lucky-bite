@@ -56,21 +56,21 @@ jobs:
       matrix:
         region: ${{ fromJson(needs.plan.outputs.regions) }}
     steps:
+      - name: Install osmium (before the disk shuffle, which leaves little room on the root volume)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osmium-tool
+          pip install -q osmium
       - name: Free disk space (Europe's extract is ~30 GB)
         uses: easimon/maximize-build-space@v10
         with:
-          root-reserve-mb: 4096
+          root-reserve-mb: 8192
           remove-dotnet: "true"
           remove-android: "true"
           remove-haskell: "true"
           remove-codeql: "true"
           remove-docker-images: "true"
       - uses: actions/checkout@v4
-      - name: Install osmium
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq osmium-tool
-          pip install -q osmium
       - name: Build ${{ matrix.region }}
         run: pipeline/build.sh "${{ matrix.region }}" work
       - name: Save place list to the "data" release
