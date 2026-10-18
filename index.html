@@ -555,7 +555,7 @@ function describeData() {
 
 function fromRecord(r) {
   return { id: r[0], name: r[1], lat: r[2], lon: r[3], amenity: r[4], isChain: !!r[5], price: r[6], priceEst: !!r[7],
-           cuisine: r[8], hours: r[9], delivery: r[10], addr: r[11], website: r[12], badges: r[13] || '', menu: r[14] || '', phone: r[15] || '', brand: '' };
+           cuisine: r[8], hours: r[9], delivery: r[10], addr: r[11], website: r[12], badges: r[13] || '', menu: r[14] || '', phone: r[15] || '', locality: r[16] || '', brand: '' };
 }
 
 // Badge codes (match pipeline/extract.py). A trailing "!" on a diet code means "only".
@@ -740,6 +740,7 @@ function normalize(el) {
     badges: badgesFromTags(t),
     menu: /^http/.test(t['website:menu'] || t['contact:menu'] || '') ? (t['website:menu'] || t['contact:menu']) : '',
     addr: [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '),
+    locality: [t['addr:city'], [t['addr:state'], t['addr:postcode']].filter(Boolean).join(' ')].filter(Boolean).join(', '),
   };
 }
 
@@ -1179,7 +1180,7 @@ function showResult(p) {
     <div class="meta">
       <span class="pill" title="${p.priceEst ? 'Estimated' : 'From OpenStreetMap'}">${dollars}</span>
       <span><b>${p.dist.toFixed(1)} mi</b> away</span>
-      ${p.addr ? `<span>${esc(p.addr)}</span>` : ''}
+      ${p.addr || p.locality ? `<span>${esc([p.addr, p.locality].filter(Boolean).join(', '))}</span>` : ''}
       ${hoursToday(p.hours) ? `<span>${esc(hoursToday(p.hours))}${open === true ? ' <b style="color:#2f7d3a">· open now</b>' : open === false && hoursToday(p.hours) !== 'Closed today' ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>` : ''}
     </div>
     <p class="synopsis">${esc(synopsis(p))}</p>

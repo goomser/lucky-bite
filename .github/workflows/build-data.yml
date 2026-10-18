@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       regions:
-        description: "Comma-separated Geofabrik regions to rebuild (blank = whole world)"
+        description: "Comma-separated Geofabrik regions to rebuild (blank = whole world, 'none' = skip)"
         required: false
         default: ""
       overture:
@@ -49,11 +49,12 @@ jobs:
           echo "extract=true" >> "$GITHUB_OUTPUT"
           LIST='${{ github.event.inputs.regions }}'
           [ -z "$LIST" ] && LIST='africa,asia,australia-oceania,central-america,europe,north-america,south-america'
-          echo "regions=$(echo "$LIST" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')" >> "$GITHUB_OUTPUT"
+          [ "$LIST" = "none" ] && LIST=''
+          echo "regions=$(echo "$LIST" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')" >> "$GITHUB_OUTPUT"
 
   extract:
     needs: plan
-    if: needs.plan.outputs.extract == 'true'
+    if: needs.plan.outputs.extract == 'true' && needs.plan.outputs.regions != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 330
     strategy:

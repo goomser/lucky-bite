@@ -78,6 +78,9 @@ def main():
     phone_e = "phones[1]" if "[]" in cols.get("phones", "") else "NULL"
     web_e = "websites[1]" if "[]" in cols.get("websites", "") else "NULL"
     addr_e = "addresses[1].freeform" if "freeform" in cols.get("addresses", "") else "NULL"
+    loc_e = "addresses[1].locality" if "locality" in cols.get("addresses", "") else "NULL"
+    reg_e = "addresses[1].region" if "region" in cols.get("addresses", "") else "NULL"
+    zip_e = "addresses[1].postcode" if "postcode" in cols.get("addresses", "") else "NULL"
     where = [f"regexp_matches({cat}, '{EAT.pattern}', 'i')", f"NOT regexp_matches({cat}, 'courier|catering|supplier|supplies|wholesale|equipment|remodel|contractor|rental|manufactur', 'i')",
              "names.primary IS NOT NULL", "confidence >= 0.5"]
     if a.bbox:
@@ -86,7 +89,7 @@ def main():
     q = f"""
       SELECT id, names.primary AS name, (bbox.ymin + bbox.ymax)/2 AS lat, (bbox.xmin + bbox.xmax)/2 AS lon,
              {cat} AS cat, {brand_e} AS brand, {web_e} AS website,
-             {addr_e} AS addr, {status} AS status, {phone_e} AS phone
+             {addr_e} AS addr, {status} AS status, {phone_e} AS phone, {loc_e} AS locality, {reg_e} AS region, {zip_e} AS postcode
       FROM read_parquet('{src}', hive_partitioning=1)
       WHERE {" AND ".join(where)}
     """
@@ -99,7 +102,7 @@ def main():
             rows = cur.fetchmany(50000)
             if not rows:
                 break
-            for oid, name, lat, lon, cat_v, brand, website, addr, status_v, phone in rows:
+            for oid, name, lat, lon, cat_v, brand, website, addr, status_v, phone, loc, reg, pc in rows:
                 if status_v and status_v != "open":
                     continue
                 if lat is None or lon is None or not name:
@@ -123,7 +126,8 @@ def main():
                     website = ""
                 # Overture ids are 32-hex GERS ids; keep them short but unique enough.
                 rec = [f"o{oid[:16]}", name[:80], round(lat, 5), round(lon, 5), kind, chain, price, 1,
-                       cuisine, "", "", (addr or "")[:60], website, "", "", (phone or "")[:24]]
+                       cuisine, "", "", (addr or "")[:60], website, "", "", (phone or "")[:24],
+                       ", ".join(x for x in (loc or "", " ".join(y for y in ((reg or "").replace("US-", ""), pc or "") if y)) if x)[:60]]
                 out.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
                 n += 1
                 if n % 100000 == 0:

@@ -18,6 +18,7 @@ Record (array; positions matter, the app reads them by index):
               e.g. "vg!,gf,tk" = vegan-only, gluten-free options, takeout
     menu      URL of the menu when OSM has one (website:menu), else ""
     phone     phone number as written in OSM, else ""
+    locality  "City, ST 12345" from addr:city / addr:state / addr:postcode, as much as is known
 """
 import json, re, sys, time
 import osmium
@@ -71,6 +72,8 @@ def normalize(osm_id, tags, lat, lon):
         else:
             price = 2
     addr = " ".join(x for x in (tags.get("addr:housenumber"), tags.get("addr:street")) if x)
+    city = tags.get("addr:city", ""); state = tags.get("addr:state", ""); zipc = tags.get("addr:postcode", "")
+    locality = ", ".join(x for x in (city, " ".join(y for y in (state, zipc) if y)) if x)[:60]
     website = tags.get("website") or tags.get("contact:website") or ""
     if len(website) > 120 or not website.startswith("http"):
         website = ""
@@ -84,7 +87,7 @@ def normalize(osm_id, tags, lat, lon):
         cuisine.split(";")[0].replace("_", " ")[:30],
         tags.get("opening_hours", "")[:160],
         delivery if delivery in ("yes", "no", "only") else "",
-        addr[:60], website, badges_for(tags), menu, phone,
+        addr[:60], website, badges_for(tags), menu, phone, locality,
     ]
 
 
