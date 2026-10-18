@@ -197,6 +197,7 @@ legend, .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .12em
 }
 .seg input { position: absolute; opacity: 0; width: 0; height: 0; }
 .seg input:checked + span { color: var(--ink); }
+.seg small { font-size: 11px; opacity: .7; font-weight: 700; }
 .seg label:has(input:checked) { background: var(--brass); border-color: var(--brass); }
 .seg label:has(input:focus-visible) { outline: 3px solid #fff; }
 .range { display: flex; align-items: center; gap: 12px; }
@@ -312,6 +313,12 @@ footer a { color: var(--muted); }
     </fieldset>
 
     <fieldset>
+      <legend>Cuisine</legend>
+      <div class="seg" id="cuisineSeg"></div>
+      <p class="hint" id="cuisineHint"></p>
+    </fieldset>
+
+    <fieldset>
       <legend>Chains</legend>
       <div class="seg">
         <label><input type="radio" name="chain" value="any" checked><span>Either</span></label>
@@ -420,6 +427,7 @@ function readFilters() {
     open: document.querySelector('input[name=open]:checked').value,
     delivery: document.querySelector('input[name=delivery]:checked').value,
     maps: document.querySelector('input[name=maps]:checked').value,
+    cuisine: [...cuisineSel],
   };
 }
 // One Directions link that lands in the right maps app for the device, unless the person picked one.
@@ -707,6 +715,88 @@ function normalize(el) {
   };
 }
 
+// ---------- Cuisine families ----------
+// OSM and Overture use hundreds of cuisine values; people think in a couple dozen families.
+// First matching family wins, so put the specific ones (Pizza, Sushi-as-Japanese) before the broad ones.
+const FAMILIES = [
+  ['japanese',  'Japanese',       /japanese|sushi|ramen|teppanyaki|hibachi|udon|izakaya|yakitori|tempura|okonomiyaki|tonkatsu/],
+  ['chinese',   'Chinese',        /chinese|cantonese|szechuan|sichuan|dim_sum|dimsum|hunan|hot_pot|hotpot|peking|shanghai/],
+  ['korean',    'Korean',         /korean/],
+  ['thai',      'Thai',           /thai/],
+  ['vietnamese','Vietnamese',     /vietnamese|pho|banh_mi/],
+  ['asian',     'Other Asian',    /asian|filipino|indonesian|malaysian|singaporean|taiwanese|bubble_tea|boba|mongolian|cambodian|laotian|burmese|nepalese|tibetan/],
+  ['indian',    'Indian',         /indian|curry|tandoori|biryani|pakistani|bangladeshi|sri_lankan/],
+  ['middle_eastern','Middle Eastern', /middle_eastern|lebanese|turkish|persian|iranian|arab|kebab|shawarma|falafel|halal|israeli|afghan|moroccan|syrian/],
+  ['greek',     'Greek',          /greek|gyro/],
+  ['mediterranean','Mediterranean', /mediterranean/],
+  ['italian',   'Italian',        /italian|pasta/],
+  ['pizza',     'Pizza',          /pizza/],
+  ['mexican',   'Mexican',        /mexican|tex-mex|tex_mex|taco|burrito|tacos/],
+  ['latin',     'Latin American', /latin|peruvian|brazilian|colombian|salvadoran|venezuelan|argentinian|argentine|cuban|puerto_rican|dominican|honduran|guatemalan/],
+  ['caribbean', 'Caribbean',      /caribbean|jamaican|haitian/],
+  ['german',    'German',         /german|bavarian|schnitzel|austrian|swiss/],
+  ['french',    'French',         /french|crepe|bistro|brasserie/],
+  ['spanish',   'Spanish',        /spanish|tapas|paella/],
+  ['british',   'British & Irish',/british|english|irish|fish_and_chips|scottish/],
+  ['european',  'Other European', /european|polish|russian|ukrainian|hungarian|czech|portuguese|belgian|dutch|scandinavian|swedish|georgian|balkan|romanian/],
+  ['african',   'African',        /african|ethiopian|eritrean|nigerian|ghanaian|senegalese/],
+  ['bbq',       'BBQ & Smokehouse', /bbq|barbecue|barbeque|smokehouse/],
+  ['steak',     'Steakhouse',     /steak/],
+  ['seafood',   'Seafood',        /seafood|fish|oyster|crab|lobster|shrimp/],
+  ['burgers',   'Burgers',        /burger/],
+  ['chicken',   'Chicken & Wings',/chicken|wings|fried_chicken/],
+  ['sandwich',  'Sandwiches & Delis', /sandwich|sub|deli|hoagie|bagel/],
+  ['breakfast', 'Breakfast & Brunch', /breakfast|brunch|pancake|waffle|donut|doughnut/],
+  ['american',  'American',       /american|diner|southern|soul|cajun|creole|comfort|grill/],
+  ['vegetarian','Vegetarian & Vegan', /vegetarian|vegan/],
+  ['coffee',    'Coffee & Cafés', /coffee|cafe|tea|espresso/],
+  ['dessert',   'Dessert & Ice Cream', /dessert|ice_cream|icecream|frozen_yogurt|gelato|bakery|pastry|cake|chocolate|juice|smoothie/],
+];
+const FAMILY_LABEL = Object.fromEntries(FAMILIES.map(f => [f[0], f[1]]));
+function familyOf(p) {
+  const c = (p.cuisine || '').toLowerCase().replace(/ /g, '_');
+  if (!c) return '';
+  for (const [id, , rx] of FAMILIES) if (rx.test(c)) return id;
+  return 'other';
+}
+let cuisineSel = new Set(prefs.cuisine || []);   // empty = All
+function renderCuisineChips() {
+  const seg = $('cuisineSeg'), hint = $('cuisineHint');
+  const far = isFar();
+  let counts = {}, unknown = 0;
+  if (!far) {
+    for (const p of candidates({ ignoreCuisine: true })) { const f = familyOf(p); if (!f) unknown++; else counts[f] = (counts[f] || 0) + 1; }
+  }
+  const ids = far ? FAMILIES.map(f => f[0]) : Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  for (const id of [...cuisineSel]) if (!far && !counts[id]) cuisineSel.delete(id); // a choice that's vanished here is dropped
+  if (!ids.length) { seg.innerHTML = ''; hint.textContent = origin ? 'No cuisines listed for the places in range.' : ''; return; }
+  // Update chips in place rather than rebuilding them: a rebuild in the middle of a tap (say, right
+  // after the radius box loses focus) would swallow the tap.
+  const want = [['all', 'All', null, cuisineSel.size === 0], ...ids.map(id => [id, id === 'other' ? 'Other' : FAMILY_LABEL[id], far ? null : counts[id], cuisineSel.has(id)])];
+  const existing = new Map([...seg.querySelectorAll('label')].map(l => [l.querySelector('input').value, l]));
+  let prev = null;
+  for (const [id, label, n, on] of want) {
+    let el = existing.get(id);
+    if (!el) {
+      el = document.createElement('label');
+      el.innerHTML = `<input type="checkbox" name="cuisine" value="${id}"><span></span>`;
+      el.querySelector('input').addEventListener('change', e => {
+        const i = e.target;
+        if (i.value === 'all') cuisineSel.clear();
+        else if (i.checked) cuisineSel.add(i.value); else cuisineSel.delete(i.value);
+        renderCuisineChips(); updateCount(); savePrefs();
+      });
+    } else existing.delete(id);
+    el.querySelector('span').innerHTML = `${label}${n != null ? ` <small>${n}</small>` : ''}`;
+    el.querySelector('input').checked = on;
+    if (prev ? prev.nextSibling !== el : seg.firstChild !== el) seg.insertBefore(el, prev ? prev.nextSibling : seg.firstChild);
+    prev = el;
+  }
+  for (const el of existing.values()) el.remove();
+  hint.textContent = far ? 'Road-trip mode: cuisines are checked on each pull, since the whole circle isn’t loaded.'
+    : unknown ? `${unknown} place${unknown === 1 ? '' : 's'} nearby don't list a cuisine and are skipped when you pick one.` : '';
+}
+
 // Very small opening_hours reader: handles "Mo-Fr 11:00-22:00; Sa 12:00-23:00", "24/7", "Mo-Su 10:00-21:00".
 // Returns true/false, or null when it can't tell.
 const DAYS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
@@ -776,11 +866,12 @@ function dayMatches(spec, day) {
 }
 
 // ---------- Filtering ----------
-function candidates() {
+function candidates({ ignoreCuisine } = {}) {
   if (!origin) return [];
   const f = readFilters();
   return places.filter(p => {
     if (!f.kind.includes(p.amenity)) return false;
+    if (!ignoreCuisine && cuisineSel.size && !cuisineSel.has(familyOf(p))) return false;
     if (!f.price.includes(p.price)) return false;
     if (f.chain === 'no' && p.isChain) return false;
     if (f.chain === 'yes' && !p.isChain) return false;
@@ -1041,17 +1132,17 @@ function showResult(p) {
 $('lever').addEventListener('click', spin);
 $('spinBtn').addEventListener('click', spin);
 $('relocate').addEventListener('click', () => load({ useDevice: true }));
-$('radius').addEventListener('input', () => { syncRadius($('radius').value); updateCount(); });
+$('radius').addEventListener('input', () => { syncRadius($('radius').value); renderCuisineChips(); updateCount(); });
 $('radiusNum').addEventListener('input', () => {   // follow along while typing, clamp on blur
   const v = +$('radiusNum').value; if (!v) return;
   $('radius').value = Math.min(350, Math.max(1, v)); $('farHint').hidden = v <= FAR_MI; updateCount();
 });
-$('radiusNum').addEventListener('blur', () => { syncRadius($('radiusNum').value); updateCount(); savePrefs(); });
-document.querySelectorAll('#drawer input').forEach(i => i.addEventListener('change', () => { updateCount(); savePrefs(); }));
+$('radiusNum').addEventListener('blur', () => { syncRadius($('radiusNum').value); renderCuisineChips(); updateCount(); savePrefs(); });
+document.querySelectorAll('#drawer input:not([name=cuisine])').forEach(i => i.addEventListener('change', () => { renderCuisineChips(); updateCount(); savePrefs(); }));
 $('locGo').addEventListener('click', () => { savePrefs(); load(); });
 $('locText').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); savePrefs(); load(); } });
 
-function openDrawer() { $('drawer').hidden = false; $('scrim').hidden = false; updateCount(); }
+function openDrawer() { $('drawer').hidden = false; $('scrim').hidden = false; renderCuisineChips(); updateCount(); }
 function closeDrawer() {
   $('drawer').hidden = true; $('scrim').hidden = true; savePrefs();
   if (currentIndex >= 0 && !spinning && !$('result').hidden) showResult(currentStrip[currentIndex]); // e.g. new maps choice
