@@ -13,6 +13,11 @@ on:
         description: "Comma-separated Geofabrik regions to rebuild (blank = whole world)"
         required: false
         default: ""
+      overture:
+        description: "Also refresh the Overture Maps places"
+        type: boolean
+        required: false
+        default: true
   schedule:
     - cron: "17 4 1 * *"   # 04:17 UTC on the 1st of each month
   push:
@@ -83,7 +88,7 @@ jobs:
 
   overture:
     needs: plan
-    if: needs.plan.outputs.extract == 'true'
+    if: needs.plan.outputs.extract == 'true' && github.event.inputs.overture != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
