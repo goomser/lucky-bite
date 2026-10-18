@@ -1,0 +1,138 @@
+# Lucky Bite: builds the worldwide restaurant data from OpenStreetMap and publishes app + data to GitHub Pages.
+#
+#  - Monthly (or "Run workflow" in the Actions tab): every continent is extracted on its own runner in
+#    parallel, the per-continent place lists are saved to a GitHub Release called "data", then tiled and deployed.
+#  - On a push that only touches app files: skips the hours-long extract, reuses the saved place lists,
+#    re-tiles and deploys in a couple of minutes.
+name: Build and deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: "Comma-separated Geofabrik regions to rebuild (blank = whole world)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 4 1 * *"   # 04:17 UTC on the 1st of each month
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      regions: ${{ steps.set.outputs.regions }}
+      extract: ${{ steps.set.outputs.extract }}
+    steps:
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "extract=false" >> "$GITHUB_OUTPUT"
+            echo 'regions=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "extract=true" >> "$GITHUB_OUTPUT"
+          LIST='${{ github.event.inputs.regions }}'
+          [ -z "$LIST" ] && LIST='africa,asia,australia-oceania,central-america,europe,north-america,south-america'
+          echo "regions=$(echo "$LIST" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')" >> "$GITHUB_OUTPUT"
+
+  extract:
+    needs: plan
+    if: needs.plan.outputs.extract == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        region: ${{ fromJson(needs.plan.outputs.regions) }}
+    steps:
+      - name: Free disk space (Europe's extract is ~30 GB)
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 4096
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+          remove-docker-images: "true"
+      - uses: actions/checkout@v4
+      - name: Install osmium
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osmium-tool
+          pip install -q osmium
+      - name: Build ${{ matrix.region }}
+        run: pipeline/build.sh "${{ matrix.region }}" work
+      - name: Save place list to the "data" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view data >/dev/null 2>&1 || gh release create data --title "Place lists" --notes "Per-continent place lists built from OpenStreetMap. Replaced on every data build."
+          gzip -9 -k work/places-*.jsonl
+          gh release upload data work/places-*.jsonl.gz --clobber
+
+  overture:
+    needs: plan
+    if: needs.plan.outputs.extract == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install DuckDB
+        run: pip install -q duckdb
+      - name: Pull eating places from Overture Maps
+        run: python3 pipeline/overture.py work-places-overture.jsonl
+      - name: Save place list to the "data" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p work && mv work-places-overture.jsonl work/places-overture.jsonl
+          gh release view data >/dev/null 2>&1 || gh release create data --title "Place lists" --notes "Per-source place lists. Replaced on every data build."
+          gzip -9 -k work/places-overture.jsonl
+          gh release upload data work/places-overture.jsonl.gz --clobber
+
+  deploy:
+    needs: [plan, extract, overture]
+    if: always() && needs.plan.result == 'success' && (needs.extract.result == 'success' || needs.extract.result == 'skipped') && (needs.overture.result == 'success' || needs.overture.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch place lists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p places
+          if gh release view data >/dev/null 2>&1; then
+            gh release download data --dir places --pattern '*.jsonl.gz'
+            gunzip places/*.gz
+          else
+            echo "No data release yet; deploying the app alone (it falls back to live search)."
+          fi
+      - name: Tile the world
+        run: |
+          mkdir -p site/data
+          if ls places/*.jsonl >/dev/null 2>&1; then
+            python3 pipeline/tile.py site/data places/*.jsonl
+          else
+            echo '{"built":"","max_level":4,"tiles":{}}' > site/data/index.json
+          fi
+          cp index.html sw.js manifest.webmanifest icon.svg icon-192.png icon-512.png site/
+          echo "data: $(du -sh site/data | cut -f1), $(ls site/data/tiles 2>/dev/null | wc -l) tiles"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

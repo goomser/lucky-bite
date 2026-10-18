@@ -1,0 +1,7 @@
+work/
+data/
+site/
+*.osm.pbf
+*.jsonl
+__pycache__/
+.DS_Store
