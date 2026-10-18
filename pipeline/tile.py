@@ -29,7 +29,9 @@ MAX_LEVEL = 4         # 1/16 degree, about 4 miles
 BLOCK = 10            # degrees per processing block
 DUP_MI = 0.16         # ~250 m
 CHAIN_MIN = 25        # a name this common worldwide is a chain...
-# ...unless it's made only of generic words ("Pizzeria", "Bar Central", "Café de la Gare").
+CHAIN_BRANDED = 0.25  # ...when at least this share of its entries carry a brand tag (Waffle House: 91%,
+                      # "China Garden": 2%). Names made only of generic words also need that share;
+                      # distinctive names ("Skyline Chili") count as chains on frequency alone.
 GENERIC = set("""the a la le les el los las de del della di da du der die das al an and y et und bar cafe café caffe caffè
 restaurant restaurante ristorante restoran pizzeria pizza bistro bistrot grill grille diner cantina taverna tavern trattoria
 osteria pub inn kitchen cuisine food foods eat eatery cafeteria kantine kiosk imbiss bakery panaderia boulangerie taqueria
@@ -131,6 +133,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="tiles-")
     handles, total = {}, 0
     name_count = defaultdict(int)
+    name_branded = defaultdict(int)
     for path in inputs:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -147,22 +150,28 @@ def main():
                 handles[b].write(line if line.endswith("\n") else line + "\n")
                 total += 1
                 name_count[norm_name(r[1])] += 1
+                if r[5]:
+                    name_branded[norm_name(r[1])] += 1
     for h in handles.values():
         h.close()
-    chains = {n for n, c in name_count.items() if c >= CHAIN_MIN and len(n) >= 4}
-    del name_count
-    seen_generic = set()
+    chains, branded = {}, set()
+    for n, c in name_count.items():
+        if c >= CHAIN_MIN and len(n) >= 4:
+            chains[n] = c
+            if name_branded[n] / c >= CHAIN_BRANDED:
+                branded.add(n)
+    del name_count, name_branded
+    verdict = {}
     def is_chain(name):
         n = norm_name(name)
         if n not in chains:
             return False
-        if n in seen_generic:
-            return False
-        if generic(name):
-            seen_generic.add(n)
-            return False
-        return True
-    print(f"{total:,} input records in {len(handles)} blocks; {len(chains):,} chain names", file=sys.stderr)
+        if n in branded:
+            return True
+        if n not in verdict:
+            verdict[n] = not generic(name)
+        return verdict[n]
+    print(f"{total:,} input records in {len(handles)} blocks; {len(chains):,} frequent names, {len(branded):,} of them branded", file=sys.stderr)
 
     # Pass 2: per block, dedupe by id and across sources, then tile.
     tdir = os.path.join(out_dir, "tiles")

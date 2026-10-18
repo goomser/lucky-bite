@@ -865,23 +865,36 @@ function fmtTime(m) {
   return mi ? `${h12}:${String(mi).padStart(2, '0')} ${ap}` : `${h12} ${ap}`;
 }
 
-// One honest sentence or two, built only from what the data says.
+// Today's posted hours as short text ("11 am–10 pm", "Open 24 hours", "Closed today"), or "" when unknown.
+function hoursToday(hours, now = new Date()) {
+  if (!hours) return '';
+  if (/24\/7/.test(hours)) return 'Open 24 hours';
+  const day = DAYS[now.getDay()];
+  let spans = null, parsedAll = true;
+  for (const rule of hours.split(';').map(s => s.trim()).filter(Boolean)) {
+    const m = rule.match(/^([A-Za-z,\- ]*?)\s*((?:\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}[, ]*)+|off|closed)$/);
+    if (!m) { parsedAll = false; continue; }
+    if (!dayMatches(m[1].trim() || 'Mo-Su', day)) continue;
+    if (/off|closed/.test(m[2])) { spans = []; continue; }
+    spans = (m[2].match(/\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/g) || []).map(sp => {
+      const [a, b] = sp.split('-').map(x => { const [h, mi] = x.trim().split(':').map(Number); return h * 60 + mi; });
+      return `${fmtTime(a)}–${fmtTime(b)}`;
+    });
+  }
+  if (spans === null) return parsedAll ? 'Closed today' : '';
+  return spans.length ? spans.join(', ') : 'Closed today';
+}
+
+// One honest sentence, built only from what the data says. Price and hours live on the info line.
 function synopsis(p) {
-  const PRICE = { 1: 'cheap eats', 2: 'mid-priced', 3: 'upscale', 4: 'fine dining' };
   const who = p.isChain ? 'Chain' : 'Independent';
   const cuisine = (p.cuisine || '').replace(/\b\w/g, c => c.toUpperCase());
   const what = [cuisine, p.amenity === 'restaurant' ? 'restaurant' : label(p.amenity)].filter(Boolean).join(' ');
-  const price = (p.priceEst ? 'probably ' : '') + PRICE[p.price];
   const perks = badgeLabels(p.badges || '').map(b => b.text.toLowerCase());
   if (/^(yes|only)$/.test(p.delivery)) perks.push('delivery');
-  let s = `${who} ${what}, ${price}`;
-  if (perks.length) s += `, with ${perks.length > 1 ? perks.slice(0, -1).join(', ') + ' and ' + perks.at(-1) : perks[0]}`;
-  s += '.';
-  const h = hoursInfo(p.hours);
-  if (h.open === true) s += h.until == null ? ' Open 24 hours.' : ` Open until ${fmtTime(h.until)} ${h.until < 300 ? 'tonight' : 'today'}.`;
-  else if (h.open === false) s += ' Looks closed right now.';
-  else s += ' Hours not listed.';
-  return s;
+  let s = `${who} ${what}`;
+  if (perks.length) s += ` with ${perks.length > 1 ? perks.slice(0, -1).join(', ') + ' and ' + perks.at(-1) : perks[0]}`;
+  return s + '.';
 }
 function menuLink(p) {
   if (p.menu) return p.menu;
@@ -1150,8 +1163,8 @@ function showResult(p) {
     <div class="meta">
       <span class="pill" title="${p.priceEst ? 'Estimated' : 'From OpenStreetMap'}">${dollars}</span>
       <span><b>${p.dist.toFixed(1)} mi</b> away</span>
-      ${open === true ? '<span style="color:#2f7d3a"><b>open now</b></span>' : open === false ? '<span style="color:#9a2a24"><b>looks closed</b></span>' : ''}
       ${p.addr ? `<span>${esc(p.addr)}</span>` : ''}
+      ${hoursToday(p.hours) ? `<span>${esc(hoursToday(p.hours))}${open === true ? ' <b style="color:#2f7d3a">· open now</b>' : open === false && hoursToday(p.hours) !== 'Closed today' ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>` : ''}
     </div>
     <p class="synopsis">${esc(synopsis(p))}</p>
     ${badgeLabels(p.badges || '').length ? `<div class="badges">${badgeLabels(p.badges).map(b => `<span class="badge${b.diet ? ' diet' : ''}">${esc(b.text)}</span>`).join('')}</div>` : ''}
