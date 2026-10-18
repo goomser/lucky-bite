@@ -32,6 +32,9 @@ BADGES = [("diet:vegan", "vg"), ("diet:vegetarian", "ve"), ("diet:pescetarian", 
           ("takeaway", "tk"), ("drive_through", "dt"), ("outdoor_seating", "os"), ("wheelchair", "wc")]
 
 
+KID_TAGS = ("kids_area", "highchair", "changing_table", "kids_menu", "playground", "kids")
+
+
 def badges_for(tags):
     out = []
     for tag, code in BADGES:
@@ -40,6 +43,8 @@ def badges_for(tags):
             out.append(code + "!")
         elif v == "yes":
             out.append(code)
+    if any(tags.get(t) == "yes" for t in KID_TAGS):
+        out.append("kf")
     return ",".join(out)
 
 

@@ -313,6 +313,12 @@ footer a { color: var(--muted); }
     </fieldset>
 
     <fieldset>
+      <legend>Must have</legend>
+      <div class="seg" id="needSeg"></div>
+      <p class="hint" id="needHint"></p>
+    </fieldset>
+
+    <fieldset>
       <legend>Cuisine</legend>
       <div class="seg" id="cuisineSeg"></div>
       <p class="hint" id="cuisineHint"></p>
@@ -428,6 +434,7 @@ function readFilters() {
     delivery: document.querySelector('input[name=delivery]:checked').value,
     maps: document.querySelector('input[name=maps]:checked').value,
     cuisine: [...cuisineSel],
+    needs: [...needSel],
   };
 }
 // One Directions link that lands in the right maps app for the device, unless the person picked one.
@@ -538,7 +545,7 @@ function fromRecord(r) {
 
 // Badge codes (match pipeline/extract.py). A trailing "!" on a diet code means "only".
 const BADGE_LABELS = { vg: 'Vegan options', ve: 'Vegetarian options', pe: 'Pescatarian options', ha: 'Halal', ko: 'Kosher',
-  gf: 'Gluten-free options', lf: 'Lactose-free options', tk: 'Takeout', dt: 'Drive-through', os: 'Outdoor seating', wc: 'Wheelchair accessible' };
+  gf: 'Gluten-free options', lf: 'Lactose-free options', tk: 'Takeout', dt: 'Drive-through', os: 'Outdoor seating', wc: 'Wheelchair accessible', kf: 'Kid friendly' };
 const BADGE_ONLY = { vg: 'Vegan only', ve: 'Vegetarian only', pe: 'Pescatarian only', ha: 'Halal only', ko: 'Kosher only', gf: 'All gluten-free', lf: 'All lactose-free' };
 function badgeLabels(codes) {
   return codes.split(',').filter(Boolean).map(c => {
@@ -549,8 +556,11 @@ function badgeLabels(codes) {
 const BADGE_TAGS = [['diet:vegan','vg'],['diet:vegetarian','ve'],['diet:pescetarian','pe'],['diet:halal','ha'],['diet:kosher','ko'],
   ['diet:gluten_free','gf'],['diet:lactose_free','lf'],['takeaway','tk'],['drive_through','dt'],['outdoor_seating','os'],['wheelchair','wc']];
 function badgesFromTags(t) {
-  return BADGE_TAGS.map(([tag, code]) => t[tag] === 'only' && tag.startsWith('diet:') ? code + '!' : t[tag] === 'yes' ? code : '').filter(Boolean).join(',');
+  const out = BADGE_TAGS.map(([tag, code]) => t[tag] === 'only' && tag.startsWith('diet:') ? code + '!' : t[tag] === 'yes' ? code : '').filter(Boolean);
+  if (['kids_area', 'highchair', 'changing_table', 'kids_menu', 'playground', 'kids'].some(k => t[k] === 'yes')) out.push('kf');
+  return out.join(',');
 }
+function hasBadge(p, code) { return (p.badges || '').split(',').some(c => c.replace('!', '') === code); }
 
 async function loadTile(key) {
   if (memTiles.has(key)) return memTiles.get(key);
@@ -770,21 +780,45 @@ function renderCuisineChips() {
   const ids = far ? FAMILIES.map(f => f[0]) : Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   for (const id of [...cuisineSel]) if (!far && !counts[id]) cuisineSel.delete(id); // a choice that's vanished here is dropped
   if (!ids.length) { seg.innerHTML = ''; hint.textContent = origin ? 'No cuisines listed for the places in range.' : ''; return; }
-  // Update chips in place rather than rebuilding them: a rebuild in the middle of a tap (say, right
-  // after the radius box loses focus) would swallow the tap.
   const want = [['all', 'All', null, cuisineSel.size === 0], ...ids.map(id => [id, id === 'other' ? 'Other' : FAMILY_LABEL[id], far ? null : counts[id], cuisineSel.has(id)])];
+  syncChips(seg, 'cuisine', want, cuisineSel);
+  hint.textContent = far ? 'Road-trip mode: cuisines are checked on each pull, since the whole circle isn’t loaded.'
+    : unknown ? `${unknown} place${unknown === 1 ? '' : 's'} nearby don't list a cuisine and are skipped when you pick one.` : '';
+}
+
+// "Must have" chips: wheelchair access and kid-friendliness, from the badge data. Same rule as cuisine:
+// a chip only shows when at least one place in range says yes.
+const NEEDS = [['wc', 'Wheelchair accessible'], ['kf', 'Kid friendly']];
+let needSel = new Set(prefs.needs || []);
+function renderNeedChips() {
+  const seg = $('needSeg'), hint = $('needHint'), far = isFar();
+  const counts = {};
+  if (!far) for (const p of candidates({ ignoreNeeds: true })) for (const [code] of NEEDS) if (hasBadge(p, code)) counts[code] = (counts[code] || 0) + 1;
+  for (const id of [...needSel]) if (!far && !counts[id]) needSel.delete(id);
+  const want = NEEDS.filter(([c]) => far || counts[c]).map(([c, label]) => [c, label, far ? null : counts[c], needSel.has(c)]);
+  syncChips(seg, 'need', want, needSel);
+  hint.textContent = far ? 'Checked on each pull in road-trip mode.'
+    : !want.length ? (origin ? 'Nothing nearby lists wheelchair access or kid facilities yet.' : '')
+    : 'Only places whose listing says yes. Most places simply don’t say.';
+  seg.parentElement.hidden = !far && !want.length && !origin;
+}
+
+// Updates a row of chips in place rather than rebuilding it: a rebuild in the middle of a tap (say,
+// right after the radius box loses focus) would swallow the tap. `sel` is the Set the chips edit;
+// a chip with value "all" clears it.
+function syncChips(seg, name, want, sel) {
   const existing = new Map([...seg.querySelectorAll('label')].map(l => [l.querySelector('input').value, l]));
   let prev = null;
   for (const [id, label, n, on] of want) {
     let el = existing.get(id);
     if (!el) {
       el = document.createElement('label');
-      el.innerHTML = `<input type="checkbox" name="cuisine" value="${id}"><span></span>`;
+      el.innerHTML = `<input type="checkbox" name="${name}" value="${id}"><span></span>`;
       el.querySelector('input').addEventListener('change', e => {
         const i = e.target;
-        if (i.value === 'all') cuisineSel.clear();
-        else if (i.checked) cuisineSel.add(i.value); else cuisineSel.delete(i.value);
-        renderCuisineChips(); updateCount(); savePrefs();
+        if (i.value === 'all') sel.clear();
+        else if (i.checked) sel.add(i.value); else sel.delete(i.value);
+        renderChipRows(); updateCount(); savePrefs();
       });
     } else existing.delete(id);
     el.querySelector('span').innerHTML = `${label}${n != null ? ` <small>${n}</small>` : ''}`;
@@ -793,9 +827,8 @@ function renderCuisineChips() {
     prev = el;
   }
   for (const el of existing.values()) el.remove();
-  hint.textContent = far ? 'Road-trip mode: cuisines are checked on each pull, since the whole circle isn’t loaded.'
-    : unknown ? `${unknown} place${unknown === 1 ? '' : 's'} nearby don't list a cuisine and are skipped when you pick one.` : '';
 }
+function renderChipRows() { renderNeedChips(); renderCuisineChips(); }
 
 // Very small opening_hours reader: handles "Mo-Fr 11:00-22:00; Sa 12:00-23:00", "24/7", "Mo-Su 10:00-21:00".
 // Returns true/false, or null when it can't tell.
@@ -866,12 +899,13 @@ function dayMatches(spec, day) {
 }
 
 // ---------- Filtering ----------
-function candidates({ ignoreCuisine } = {}) {
+function candidates({ ignoreCuisine, ignoreNeeds } = {}) {
   if (!origin) return [];
   const f = readFilters();
   return places.filter(p => {
     if (!f.kind.includes(p.amenity)) return false;
     if (!ignoreCuisine && cuisineSel.size && !cuisineSel.has(familyOf(p))) return false;
+    if (!ignoreNeeds) for (const c of needSel) if (!hasBadge(p, c)) return false;
     if (!f.price.includes(p.price)) return false;
     if (f.chain === 'no' && p.isChain) return false;
     if (f.chain === 'yes' && !p.isChain) return false;
@@ -1132,17 +1166,17 @@ function showResult(p) {
 $('lever').addEventListener('click', spin);
 $('spinBtn').addEventListener('click', spin);
 $('relocate').addEventListener('click', () => load({ useDevice: true }));
-$('radius').addEventListener('input', () => { syncRadius($('radius').value); renderCuisineChips(); updateCount(); });
+$('radius').addEventListener('input', () => { syncRadius($('radius').value); renderChipRows(); updateCount(); });
 $('radiusNum').addEventListener('input', () => {   // follow along while typing, clamp on blur
   const v = +$('radiusNum').value; if (!v) return;
   $('radius').value = Math.min(350, Math.max(1, v)); $('farHint').hidden = v <= FAR_MI; updateCount();
 });
-$('radiusNum').addEventListener('blur', () => { syncRadius($('radiusNum').value); renderCuisineChips(); updateCount(); savePrefs(); });
-document.querySelectorAll('#drawer input:not([name=cuisine])').forEach(i => i.addEventListener('change', () => { renderCuisineChips(); updateCount(); savePrefs(); }));
+$('radiusNum').addEventListener('blur', () => { syncRadius($('radiusNum').value); renderChipRows(); updateCount(); savePrefs(); });
+document.querySelectorAll('#drawer input:not([name=cuisine]):not([name=need])').forEach(i => i.addEventListener('change', () => { renderCuisineChips(); updateCount(); savePrefs(); }));
 $('locGo').addEventListener('click', () => { savePrefs(); load(); });
 $('locText').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); savePrefs(); load(); } });
 
-function openDrawer() { $('drawer').hidden = false; $('scrim').hidden = false; renderCuisineChips(); updateCount(); }
+function openDrawer() { $('drawer').hidden = false; $('scrim').hidden = false; renderChipRows(); updateCount(); }
 function closeDrawer() {
   $('drawer').hidden = true; $('scrim').hidden = true; savePrefs();
   if (currentIndex >= 0 && !spinning && !$('result').hidden) showResult(currentStrip[currentIndex]); // e.g. new maps choice
