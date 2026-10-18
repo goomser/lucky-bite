@@ -1,0 +1,24 @@
+# One-off diagnostics against the Overture dataset (runs on GitHub's machines, which can reach it).
+name: Probe Overture
+on:
+  workflow_dispatch:
+    inputs:
+      bbox:
+        description: "west,south,east,north"
+        default: "-84.85,38.90,-84.45,39.12"
+      names:
+        description: "comma-separated names to look for"
+        default: "steinhaus"
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q duckdb
+      - run: python3 pipeline/probe_confidence.py "${{ github.event.inputs.bbox }}" "${{ github.event.inputs.names }}" | tee probe.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe
+          path: |
+            probe.txt
+            probe.json
