@@ -55,7 +55,7 @@ def generic(name):
 NORM = re.compile(r"[^a-z0-9]+")
 # Overture-only hygiene: business-registry names and non-restaurant service categories.
 JUNK_NAME = re.compile(r"\b(inc|llc|l\.l\.c|dba|d/b/a|corp|corporation|holdings|enterprises)\b\.?", re.I)
-JUNK_CUISINE = re.compile(r"delivery|courier|catering|supplier|wholesale|equipment", re.I)
+JUNK_CUISINE = re.compile(r"(?<!pizza )delivery|courier|catering|supplier|supplies|wholesale|equipment|remodel|contractor|rental|manufactur", re.I)
 
 
 def key(level, lat, lon):
@@ -189,6 +189,7 @@ def main():
                 if r[0].startswith("o") and (JUNK_NAME.search(r[1]) or JUNK_CUISINE.search(r[8])):
                     junk += 1
                     continue
+                r[8] = r[8].replace(" delivery service", "")
                 if not r[5] and is_chain(r[1]):
                     r[5] = 1
                 cells[key(0, r[2], r[3])].append(r)

@@ -21,7 +21,7 @@ DEFAULT_RELEASE = os.environ.get("OVERTURE_RELEASE", "2026-09-23.1")
 # Overture category -> our kind. Anything matching EAT that isn't listed falls back to "restaurant".
 EAT = re.compile(r"(restaurant|cafe|coffee|tea_room|teahouse|bar$|_bar$|pub$|brewpub|gastropub|brewery|taproom|"
                  r"fast_food|food_court|food_truck|diner|bistro|pizzeria|pizza|taqueria|steakhouse|ramen|sushi|"
-                 r"noodle|burger|sandwich|deli|bbq|barbecue|grill|cafeteria|ice_cream|dessert|donut|bagel|"
+                 r"noodle|burger|sandwich|\bdeli$|_deli$|^deli_|bbq|barbecue|\bgrill$|_grill$|cafeteria|ice_cream|dessert|donut|bagel|"
                  r"juice|smoothie|bubble_tea|wine_bar|cocktail|lounge|izakaya|bakery_cafe)", re.I)
 KIND_RULES = [
     (re.compile(r"cafe|coffee|tea|ice_cream|dessert|donut|bagel|juice|smoothie|bubble_tea|bakery_cafe", re.I), "cafe"),
@@ -30,6 +30,7 @@ KIND_RULES = [
 ]
 CHEAP = re.compile(r"pizza|burger|sandwich|taco|hot ?dog|chicken|donut|doughnut|bagel|ice_cream|coffee|fried|wings|sub|deli|diner|noodle|bubble_tea|juice|smoothie|kebab|falafel|shawarma|fish_and_chips|dumpling|ramen", re.I)
 PRICEY = re.compile(r"steak|fine|french|sushi|seafood|oyster|tapas|omakase|wine|fine_dining", re.I)
+JUNK = re.compile(r"(?<!pizza_)delivery|courier|catering|supplier|supplies|wholesale|equipment|remodel|contractor|rental|manufactur", re.I)
 STRIP = re.compile(r"_(restaurant|bar|cafe|shop|place|house|joint|spot|stand|truck|parlor|parlour)$")
 
 
@@ -41,7 +42,7 @@ def kind_for(cat):
 
 
 def cuisine_for(cat):
-    c = STRIP.sub("", cat)
+    c = STRIP.sub("", cat.replace("_delivery_service", ""))
     if c in ("restaurant", "cafe", "bar", "pub", "fast_food", "food_court", "coffee", "diner", "bistro", "eat_and_drink"):
         return ""
     return c.replace("_", " ")[:30]
@@ -74,10 +75,10 @@ def main():
     print(f"Using category column {cat}", file=sys.stderr)
     status = "operating_status" if "operating_status" in cols else "NULL"
     brand_e = "brand.names.primary" if "names" in cols.get("brand", "") else "NULL"
-    phone_e = "phones[1]" if "phones" in cols else "NULL"
-    web_e = "websites[1]" if "websites" in cols else "NULL"
+    phone_e = "phones[1]" if "[]" in cols.get("phones", "") else "NULL"
+    web_e = "websites[1]" if "[]" in cols.get("websites", "") else "NULL"
     addr_e = "addresses[1].freeform" if "freeform" in cols.get("addresses", "") else "NULL"
-    where = [f"regexp_matches({cat}, '{EAT.pattern}', 'i')", f"NOT regexp_matches({cat}, 'delivery|courier|catering|supplier|wholesale|equipment', 'i')",
+    where = [f"regexp_matches({cat}, '{EAT.pattern}', 'i')", f"NOT regexp_matches({cat}, 'courier|catering|supplier|supplies|wholesale|equipment|remodel|contractor|rental|manufactur', 'i')",
              "names.primary IS NOT NULL", "confidence >= 0.5"]
     if a.bbox:
         w, s, e, n = map(float, a.bbox.split(","))
@@ -104,6 +105,8 @@ def main():
                 if lat is None or lon is None or not name:
                     continue
                 cat_v = cat_v or ""
+                if JUNK.search(cat_v):   # delivery/courier services, suppliers, remodelers that mention food words
+                    continue
                 kind = kind_for(cat_v)
                 cuisine = cuisine_for(cat_v)
                 chain = 1 if brand else 0
