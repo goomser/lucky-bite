@@ -133,6 +133,7 @@ main { flex: 1; display: flex; flex-direction: column; justify-content: center; 
 .result .meta b { color: var(--ink); }
 .result .actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .pill { display: inline-block; background: #efe2c4; border-radius: 999px; padding: 2px 9px; font-weight: 700; font-size: 12px; }
+.verified { font-family: var(--body); font-size: 14px; color: #2f7d3a; vertical-align: middle; }
 .synopsis { grid-column: 1 / -1; margin: 2px 0 0; font-size: 14px; line-height: 1.4; color: #3b2719; }
 .btn.gold { background: var(--brass); border-color: var(--brass); color: var(--ink); }
 .btn.ghost { border-color: transparent; color: #8a6a58; text-decoration: underline; text-underline-offset: 3px; padding-inline: 6px; }
@@ -941,6 +942,11 @@ function dayMatches(spec, day) {
   return false;
 }
 
+// Places Google says are permanently closed: remembered on this device so they never come back.
+let closedIds = new Set();
+try { closedIds = new Set(JSON.parse(localStorage.getItem('luckybite.closed') || '[]')); } catch {}
+function rememberClosed(p) { closedIds.add(p.id); try { localStorage.setItem('luckybite.closed', JSON.stringify([...closedIds])); } catch {} }
+
 // ---------- Never again (per device) ----------
 // Places you've banished: closed for years, or you just don't want to see them. Stays on this device.
 let banned = new Map();   // id -> name
@@ -966,7 +972,7 @@ function candidates({ ignoreCuisine, ignoreNeeds } = {}) {
   if (!origin) return [];
   const f = readFilters();
   return places.filter(p => {
-    if (banned.has(p.id)) return false;
+    if (banned.has(p.id) || closedIds.has(p.id)) return false;
     if (!f.kind.includes(p.amenity)) return false;
     if (!ignoreCuisine && cuisineSel.size && !cuisineSel.has(familyOf(p))) return false;
     if (!ignoreNeeds) for (const c of needSel) if (!hasBadge(p, c)) return false;
@@ -1165,6 +1171,17 @@ async function spin() {
   // Weight the pick away from the last result so repeat pulls feel fresh.
   let pick = pool[Math.floor(Math.random() * pool.length)];
   if (pool.length > 1 && lastPick && pick.id === lastPick.id) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+  // Ask Google whether the pick still exists, while the reel is spinning. Up to 3 tries.
+  const verifying = (async () => {
+    for (let t = 0; t < 3; t++) {
+      const v = await googleVerify(pick);
+      if (v.verdict !== 'closed') { if (v.maps) pick.maps = v.maps; pick.verified = v.verdict === 'open'; return; }
+      rememberClosed(pick);
+      const rest = pool.filter(q => q !== pick && !closedIds.has(q.id));
+      if (!rest.length) return;
+      pick = rest[Math.floor(Math.random() * rest.length)];
+    }
+  })();
   lastPick = pick;
 
   // Build a strip: random filler then the pick, so the reel lands on it in the payline.
@@ -1180,6 +1197,9 @@ async function spin() {
   reel.innerHTML = strip.map(cellHTML).join('');
 
   currentStrip = strip; currentIndex = total - 1; currentPool = pool;
+  await verifying;                 // normally done long before the reel stops
+  strip[total - 1] = pick; lastPick = pick;
+  reel.children[total - 1].outerHTML = cellHTML(pick, total - 1);
   const winH = reel.parentElement.clientHeight;
   const target = offsetFor(total - 1); // puts the pick in the payline
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1208,25 +1228,110 @@ function showResult(p) {
   const dollars = '$'.repeat(p.price) + (p.priceEst ? '?' : '');
   const open = openNow(p.hours);
   $('result').innerHTML = `
-    <h2>${esc(p.name)}</h2>
+    <h2>${esc(p.name)}${p.verified ? ' <span class="verified" title="Google confirms this place is operating">✓</span>' : ''}</h2>
     <div class="meta">
       <span class="pill" title="${p.priceEst ? 'Estimated' : 'From OpenStreetMap'}">${dollars}</span>
       <span><b>${p.dist.toFixed(1)} mi</b> away</span>
+      ${p.rating ? `<span title="Google rating">★ <b>${p.rating.toFixed(1)}</b> <small>(${Number(p.ratingCount).toLocaleString()})</small></span>` : ''}
       ${p.addr || p.locality ? `<span>${esc([p.addr, p.locality].filter(Boolean).join(', '))}</span>` : ''}
-      ${hoursToday(p.hours) ? `<span>${esc(hoursToday(p.hours))}${open === true ? ' <b style="color:#2f7d3a">· open now</b>' : open === false && hoursToday(p.hours) !== 'Closed today' ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>` : ''}
+      ${p.gHoursToday ? `<span>${esc(p.gHoursToday)}${p.gOpenNow === true ? ' <b style="color:#2f7d3a">· open now</b>' : p.gOpenNow === false ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>`
+        : hoursToday(p.hours) ? `<span>${esc(hoursToday(p.hours))}${open === true ? ' <b style="color:#2f7d3a">· open now</b>' : open === false && hoursToday(p.hours) !== 'Closed today' ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>` : ''}
     </div>
-    <p class="synopsis">${esc(synopsis(p))}</p>
+    <p class="synopsis">${esc(synopsis(p))}${p.googled ? ' <small style="color:#8a6a58">Hours, rating and price from Google.</small>' : ''}</p>
     ${badgeLabels(p.badges || '').length ? `<div class="badges">${badgeLabels(p.badges).map(b => `<span class="badge${b.diet ? ' diet' : ''}">${esc(b.text)}</span>`).join('')}</div>` : ''}
     <div class="actions">
       <a class="btn small gold" target="_blank" rel="noopener" href="${esc(menuLink(p))}" title="${p.menu ? 'Menu' : p.website ? 'Their website' : 'Search for the menu'}">Menu</a>
       <a class="btn small dark" target="_blank" rel="noopener" href="${esc(directionsLink(p))}">Directions</a>
       ${p.phone ? `<a class="btn small dark" href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}" title="${esc(p.phone)}">Call ${esc(p.phone)}</a>` : ''}
       <button class="btn small dark" type="button" id="again">Spin again</button>
+      ${GOOGLE_KEY && !p.googled ? `<button class="btn small dark" type="button" id="moreBtn" title="Hours, rating and price from Google">More from Google</button>` : ''}
       <button class="btn small ghost" type="button" id="banBtn" title="Closed, or just never want to see it? Hide it on this device.">Never again</button>
     </div>`;
   $('result').hidden = false;
   $('again').addEventListener('click', spin);
   $('banBtn').addEventListener('click', () => banPlace(p));
+  const more = $('moreBtn');
+  if (more) more.addEventListener('click', async () => {
+    more.disabled = true; more.textContent = 'Asking Google…';
+    const g = await googleDetails(p);
+    if (g) { applyGoogleDetails(p, g); showResult(p); }
+    else { more.textContent = 'Google had nothing'; }
+  });
+}
+
+// ---------- Google Places: live truth on the result card ----------
+// Our tiles are the index (fast, complete, free). Google answers one question per pull:
+// does this place still exist? Permanently-closed places are skipped before you see them.
+// A second, optional tap fetches hours / rating / price (those fields bill at a pricier tier).
+const GOOGLE_KEY = '';   // set to your restricted Places API (New) key; blank = Google layer off
+const GOOGLE_DAILY_CAP = 150;  // per device per day, well under the free tier for a family's use
+const gcache = new Map();      // id -> verdict for this session (Google allows short-term caching only)
+
+function googleBudgetOk() {
+  if (!GOOGLE_KEY) return false;
+  try {
+    const d = new Date().toISOString().slice(0, 10);
+    const u = JSON.parse(localStorage.getItem('luckybite.gq') || '{}');
+    if (u.d !== d) { u.d = d; u.n = 0; }
+    if (u.n >= GOOGLE_DAILY_CAP) return false;
+    u.n++; localStorage.setItem('luckybite.gq', JSON.stringify(u));
+  } catch {}
+  return true;
+}
+async function gfetch(fields, body) {
+  const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': GOOGLE_KEY, 'X-Goog-FieldMask': fields },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error('google ' + r.status);
+  return (await r.json()).places || [];
+}
+function gquery(p) {
+  return { textQuery: p.name + (p.addr ? ', ' + p.addr : ''), maxResultCount: 3,
+           locationBias: { circle: { center: { latitude: p.lat, longitude: p.lon }, radius: 1500 } } };
+}
+function nearest(places, p) {
+  let best = null, bd = 0.6;   // must be within ~0.6 mi to count as the same place
+  for (const g of places) {
+    const loc = g.location; if (!loc) continue;
+    const d = haversineMi(p, { lat: loc.latitude, lon: loc.longitude });
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+// Cheap check (Pro tier): verdict is 'closed', 'open', or 'unknown'.
+async function googleVerify(p) {
+  if (gcache.has(p.id)) return gcache.get(p.id);
+  if (!googleBudgetOk()) return { verdict: 'unknown' };
+  let out = { verdict: 'unknown' };
+  try {
+    const g = nearest(await gfetch('places.id,places.displayName,places.businessStatus,places.location,places.googleMapsUri', gquery(p)), p);
+    if (g) out = { verdict: g.businessStatus === 'CLOSED_PERMANENTLY' ? 'closed' : 'open', gid: g.id, maps: g.googleMapsUri, status: g.businessStatus };
+  } catch {}
+  gcache.set(p.id, out);
+  return out;
+}
+// Richer details (Enterprise tier), on request.
+async function googleDetails(p) {
+  if (!googleBudgetOk()) return null;
+  try {
+    const g = nearest(await gfetch('places.id,places.displayName,places.location,places.businessStatus,places.currentOpeningHours,places.priceLevel,places.rating,places.userRatingCount,places.googleMapsUri', gquery(p)), p);
+    return g || null;
+  } catch { return null; }
+}
+const GPRICE = { PRICE_LEVEL_FREE: 1, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 };
+function applyGoogleDetails(p, g) {
+  if (!g) return;
+  if (g.priceLevel && GPRICE[g.priceLevel]) { p.price = GPRICE[g.priceLevel]; p.priceEst = false; }
+  if (g.rating) { p.rating = g.rating; p.ratingCount = g.userRatingCount || 0; }
+  if (g.currentOpeningHours) {
+    p.gOpenNow = g.currentOpeningHours.openNow;
+    const today = (g.currentOpeningHours.weekdayDescriptions || [])[(new Date().getDay() + 6) % 7] || '';
+    p.gHoursToday = today.replace(/^[A-Za-z]+:\s*/, '');
+  }
+  if (g.googleMapsUri) p.maps = g.googleMapsUri;
+  p.googled = true;
 }
 
 // ---------- Hit counter (a shared number, nothing else) ----------
