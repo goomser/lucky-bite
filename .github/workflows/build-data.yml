@@ -135,7 +135,7 @@ jobs:
           else
             echo '{"built":"","max_level":4,"tiles":{}}' > site/data/index.json
           fi
-          cp index.html sw.js manifest.webmanifest icon.svg icon-192.png icon-512.png site/
+          cp index.html sw.js manifest.webmanifest icon*.svg icon*.png site/
           echo "data: $(du -sh site/data | cut -f1), $(ls site/data/tiles 2>/dev/null | wc -l) tiles"
       - uses: actions/upload-pages-artifact@v3
         with:

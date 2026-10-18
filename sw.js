@@ -1,7 +1,7 @@
 // Caches the app shell so it opens instantly and installs as an app.
 // Restaurant data is always fetched live and never cached here.
-const CACHE = 'lucky-bite-v19';
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
+const CACHE = 'lucky-bite-v20';
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-192-v2.png', './icon-512-v2.png', './icon-maskable-512-v2.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
