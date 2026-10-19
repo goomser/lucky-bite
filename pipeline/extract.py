@@ -34,6 +34,7 @@ BADGES = [("diet:vegan", "vg"), ("diet:vegetarian", "ve"), ("diet:pescetarian", 
 
 
 KID_TAGS = ("kids_area", "highchair", "changing_table", "kids_menu", "playground", "kids")
+DRINK_TAGS = ("drink:beer", "drink:wine", "drink:cocktail", "drink:liquor", "drink:spirits", "bar", "alcohol")
 
 
 def badges_for(tags):
@@ -46,6 +47,14 @@ def badges_for(tags):
             out.append(code)
     if any(tags.get(t) == "yes" for t in KID_TAGS):
         out.append("kf")
+    amenity = tags.get("amenity", "")
+    if amenity in ("bar", "pub", "biergarten") or tags.get("microbrewery") == "yes" or tags.get("brewery") not in (None, "", "no") \
+            or any(tags.get(t) in ("yes", "served") for t in DRINK_TAGS):
+        out.append("al")
+    if tags.get("reservation") in ("yes", "recommended", "required"):
+        out.append("rv" + ("!" if tags.get("reservation") == "required" else ""))
+    if tags.get("takeaway") == "only":
+        out = [b for b in out if b != "tk"] + ["tk!"]
     return ",".join(out)
 
 

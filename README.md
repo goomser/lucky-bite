@@ -41,7 +41,7 @@ python3 -m http.server 8000      # then open http://localhost:8000
 - Price (`$`–`$$$$`) comes from OSM's `price_range` tag when present; otherwise it's estimated from the type and cuisine and
   shown with a `?`.
 - "Chain" means OSM has a `brand` tag. Big chains are reliably tagged; small regional ones often aren't.
-- Badges (vegan, vegetarian, pescatarian, halal, kosher, gluten-free, lactose-free, takeout, drive-through, outdoor seating, wheelchair) appear only when OSM says so; no badge means unknown, not no.
+- Badges (vegan, vegetarian, pescatarian, halal, kosher, gluten-free, lactose-free, takeout, drive-through, outdoor seating, wheelchair, kid friendly, serves alcohol, reservations) appear only when OSM says so; no badge means unknown, not no.
 - "Delivers" relies on OSM's `delivery` tag, which is filled in for only a fraction of places.
 - OSM coverage is excellent in North America, Europe, Japan, Australia; thinner in parts of Latin America, Africa and Asia.
 

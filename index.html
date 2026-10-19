@@ -571,8 +571,10 @@ function fromRecord(r) {
 
 // Badge codes (match pipeline/extract.py). A trailing "!" on a diet code means "only".
 const BADGE_LABELS = { vg: 'Vegan options', ve: 'Vegetarian options', pe: 'Pescatarian options', ha: 'Halal', ko: 'Kosher',
-  gf: 'Gluten-free options', lf: 'Lactose-free options', tk: 'Takeout', dt: 'Drive-through', os: 'Outdoor seating', wc: 'Wheelchair accessible', kf: 'Kid friendly' };
-const BADGE_ONLY = { vg: 'Vegan only', ve: 'Vegetarian only', pe: 'Pescatarian only', ha: 'Halal only', ko: 'Kosher only', gf: 'All gluten-free', lf: 'All lactose-free' };
+  gf: 'Gluten-free options', lf: 'Lactose-free options', tk: 'Takeout', dt: 'Drive-through', os: 'Outdoor seating', wc: 'Wheelchair accessible', kf: 'Kid friendly',
+  al: 'Serves alcohol', rv: 'Reservations recommended' };
+const BADGE_ONLY = { vg: 'Vegan only', ve: 'Vegetarian only', pe: 'Pescatarian only', ha: 'Halal only', ko: 'Kosher only', gf: 'All gluten-free', lf: 'All lactose-free',
+  tk: 'Takeout only', rv: 'Reservations required' };
 function badgeLabels(codes) {
   return codes.split(',').filter(Boolean).map(c => {
     const only = c.endsWith('!'), k = c.replace('!', '');
@@ -584,9 +586,16 @@ const BADGE_TAGS = [['diet:vegan','vg'],['diet:vegetarian','ve'],['diet:pescetar
 function badgesFromTags(t) {
   const out = BADGE_TAGS.map(([tag, code]) => t[tag] === 'only' && tag.startsWith('diet:') ? code + '!' : t[tag] === 'yes' ? code : '').filter(Boolean);
   if (['kids_area', 'highchair', 'changing_table', 'kids_menu', 'playground', 'kids'].some(k => t[k] === 'yes')) out.push('kf');
+  if (['bar', 'pub', 'biergarten'].includes(t.amenity) || t.microbrewery === 'yes' || (t.brewery && t.brewery !== 'no') ||
+      ['drink:beer', 'drink:wine', 'drink:cocktail', 'drink:liquor', 'drink:spirits', 'bar', 'alcohol'].some(k => t[k] === 'yes' || t[k] === 'served')) out.push('al');
+  if (['yes', 'recommended', 'required'].includes(t.reservation)) out.push('rv' + (t.reservation === 'required' ? '!' : ''));
+  if (t.takeaway === 'only') { const i = out.indexOf('tk'); if (i >= 0) out.splice(i, 1); out.push('tk!'); }
   return out.join(',');
 }
-function hasBadge(p, code) { return (p.badges || '').split(',').some(c => c.replace('!', '') === code); }
+function hasBadge(p, code) {
+  if (code === 'al' && p.amenity === 'bar') return true;
+  return (p.badges || '').split(',').some(c => c.replace('!', '') === code);
+}
 
 async function loadTile(key) {
   if (memTiles.has(key)) return memTiles.get(key);
@@ -818,18 +827,19 @@ function renderCuisineChips() {
 
 // "Must have" chips: wheelchair access and kid-friendliness, from the badge data. Same rule as cuisine:
 // a chip only shows when at least one place in range says yes.
-const NEEDS = [['wc', 'Wheelchair accessible'], ['kf', 'Kid friendly']];
+const NEEDS = [['wc', 'Wheelchair accessible'], ['kf', 'Kid friendly'], ['al', 'Serves alcohol']];
 let needSel = new Set(prefs.needs || []);
 function renderNeedChips() {
   const seg = $('needSeg'), hint = $('needHint'), far = isFar();
   const counts = {};
   if (!far) for (const p of candidates({ ignoreNeeds: true })) for (const [code] of NEEDS) if (hasBadge(p, code)) counts[code] = (counts[code] || 0) + 1;
+  // ("Serves alcohol" counts bars by type, so its count can exceed the tagged places.)
   for (const id of [...needSel]) if (!far && !counts[id]) needSel.delete(id);
   const want = NEEDS.filter(([c]) => far || counts[c]).map(([c, label]) => [c, label, far ? null : counts[c], needSel.has(c)]);
   syncChips(seg, 'need', want, needSel);
   hint.textContent = far ? 'Checked on each pull in road-trip mode.'
     : !want.length ? (origin ? 'Nothing nearby lists wheelchair access or kid facilities yet.' : '')
-    : 'Only places whose listing says yes. Most places simply don’t say.';
+    : 'Only places whose listing says so. Many places simply don’t say.';
   seg.parentElement.hidden = !far && !want.length && !origin;
 }
 
@@ -1349,7 +1359,7 @@ for (const [id, d] of [['radiusDown', -1], ['radiusUp', 1]]) {
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
   b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nudge(d); } });
 }
-document.querySelectorAll('#drawer input:not([name=cuisine]):not([name=need])').forEach(i => i.addEventListener('change', () => { renderCuisineChips(); updateCount(); savePrefs(); }));
+document.querySelectorAll('#drawer input:not([name=cuisine]):not([name=need])').forEach(i => i.addEventListener('change', () => { renderChipRows(); updateCount(); savePrefs(); }));
 $('locGo').addEventListener('click', () => { savePrefs(); load(); });
 $('locText').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); savePrefs(); load(); } });
 
