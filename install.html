@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a0b0e">
+<title>Install Lucky Bite</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Nunito:wght@600;800&display=swap">
+<style>
+:root { --bg:#1a0b0e; --brass:#d9a441; --brass-dk:#9c6f1f; --cream:#fbf3e2; --ink:#2a1a10; --muted:#b89a86; --green:#2f7d3a;
+  --display:"Alfa Slab One","Rockwell","Georgia",serif; --body:"Nunito","Segoe UI",system-ui,sans-serif; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin:0; background: radial-gradient(ellipse at 50% 0%, #3a1820 0%, var(--bg) 60%); color: var(--cream); font-family: var(--body);
+  font-size: 19px; line-height: 1.45; padding-left: max(16px, env(safe-area-inset-left,0px)); padding-right: max(16px, env(safe-area-inset-right,0px)); padding-block: 24px 40px; }
+.wrap { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+header { display: flex; align-items: center; gap: 14px; }
+header img { width: 64px; height: 64px; border-radius: 16px; }
+h1 { margin:0; font-family: var(--display); font-weight: 400; font-size: 34px; color: var(--brass); line-height: 1; text-shadow: 0 2px 0 var(--brass-dk); }
+.sub { margin: 4px 0 0; color: var(--muted); font-size: 16px; }
+.tabs { display: flex; gap: 8px; }
+.tabs button { flex:1; font: 800 17px var(--body); padding: 12px; border-radius: 999px; border: 2px solid var(--brass); background: transparent; color: var(--brass); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--brass); color: var(--ink); }
+.card { background: var(--cream); color: var(--ink); border-radius: 16px; padding: 18px 18px 8px; }
+.card h2 { margin: 0 0 6px; font-family: var(--display); font-weight: 400; font-size: 24px; }
+.card p.note { margin: 0 0 12px; color: #5c3f2e; font-size: 16px; }
+ol { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+ol li { counter-increment: s; display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid #e6d8b8; }
+ol li::before { content: counter(s); grid-row: 1 / span 2; width: 40px; height: 40px; border-radius: 50%; background: var(--brass); color: var(--ink); font: 800 20px/40px var(--body); text-align: center; }
+ol li b { grid-column: 2; display:block; font-size: 20px; }
+ol li span { grid-column: 2; color: #5c3f2e; font-size: 16px; }
+.glyph { display:inline-block; min-width: 1.6em; padding: 0 6px; border: 2px solid #c9b58a; border-radius: 6px; font-weight: 800; text-align:center; background: #fff; }
+.go { display:block; text-align:center; font: 800 20px var(--body); padding: 16px; border-radius: 999px; background: var(--brass); color: var(--ink); text-decoration: none; }
+.tip { color: var(--muted); font-size: 15px; text-align: center; margin: 0; }
+footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 10px; }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="icon-192-v2.png" alt="">
+    <div><h1>Lucky Bite</h1><p class="sub">Pull the handle. Go eat. Free, no account, takes a minute to install.</p></div>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Phone type">
+    <button role="tab" id="tabAndroid" aria-selected="false">Android</button>
+    <button role="tab" id="tabIphone" aria-selected="false">iPhone / iPad</button>
+  </div>
+
+  <section class="card" id="android" hidden>
+    <h2>On Android</h2>
+    <p class="note">Use <b>Chrome</b> for this (the round red, yellow and green icon).</p>
+    <ol>
+      <li><b>Open the link in Chrome</b><span>Tap the big button at the bottom of this page.</span></li>
+      <li><b>Tap the three dots <span class="glyph">⋮</span></b><span>Top-right corner of Chrome.</span></li>
+      <li><b>Tap “Install app”</b><span>Some phones say “Add to Home screen” instead. Either works.</span></li>
+      <li><b>Tap “Install”</b><span>Lucky Bite appears with your other apps. Open it and allow location when asked.</span></li>
+    </ol>
+  </section>
+
+  <section class="card" id="iphone" hidden>
+    <h2>On iPhone or iPad</h2>
+    <p class="note">This only works from <b>Safari</b> (the blue compass icon), not from Chrome or a text message preview.</p>
+    <ol>
+      <li><b>Open the link in Safari</b><span>Tap the big button at the bottom of this page. If it opens somewhere else, copy the link and paste it into Safari.</span></li>
+      <li><b>Tap the Share button <span class="glyph">⇧</span></b><span>The square with an arrow pointing up, at the bottom of the screen (top-right on iPad).</span></li>
+      <li><b>Scroll down and tap “Add to Home Screen”</b><span>If you don’t see it, scroll the list further; it’s there.</span></li>
+      <li><b>Tap “Add”</b><span>Lucky Bite appears on your Home Screen. Open it and allow location when asked.</span></li>
+    </ol>
+  </section>
+
+  <a class="go" id="go" href="https://goomser.github.io/lucky-bite/">Open Lucky Bite</a>
+  <p class="tip">Already installed it? Just open it from your home screen; it updates itself.</p>
+
+  <footer>© <span id="years">2026</span> Novalis</footer>
+</div>
+<script>
+(() => {
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const tabs = { android: document.getElementById('tabAndroid'), iphone: document.getElementById('tabIphone') };
+  function show(which) {
+    for (const k in tabs) { tabs[k].setAttribute('aria-selected', String(k === which)); document.getElementById(k).hidden = k !== which; }
+    try { localStorage.setItem('luckybite.installTab', which); } catch {}
+  }
+  tabs.android.addEventListener('click', () => show('android'));
+  tabs.iphone.addEventListener('click', () => show('iphone'));
+  show(isIOS ? 'iphone' : 'android');
+  const y = new Date().getFullYear(); document.getElementById('years').textContent = y > 2026 ? `2026–${y}` : '2026';
+})();
+</script>
+</body>
+</html>
