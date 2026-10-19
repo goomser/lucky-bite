@@ -1,0 +1,11 @@
+Lucky Bite
+Copyright (c) 2026 Novalis. All rights reserved.
+
+The source code, design, name and artwork in this repository are the property of Novalis.
+They may be viewed for reference, but may not be copied, modified, redistributed, or used to
+build a competing product without written permission from Novalis.
+
+Restaurant data shown by the app is not covered by this notice:
+  - OpenStreetMap data is (c) OpenStreetMap contributors, Open Database License (ODbL).
+  - Overture Maps data is provided by the Overture Maps Foundation under CDLA Permissive 2.0 / Apache 2.0.
+  - Live details fetched at runtime from Google are subject to Google's terms.
