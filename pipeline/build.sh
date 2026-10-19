@@ -16,7 +16,7 @@ OUT="$WORK/places-$SLUG.jsonl"
 echo "== $REGION: downloading"
 # --speed-* abort a transfer that stalls below 100 KB/s for a minute (then --retry resumes it with -C -),
 # so a throttled mirror fails fast and retries instead of hanging the job for hours.
-curl -fL --retry 8 --retry-delay 30 --retry-all-errors -C - --speed-limit 100000 --speed-time 60 \
+curl -fL --retry 8 --retry-delay 60 --retry-all-errors -C - --connect-timeout 30 --speed-limit 100000 --speed-time 60 \
      -o "$RAW" "https://download.geofabrik.de/$REGION-latest.osm.pbf"
 
 echo "== $REGION: filtering to eating places"
