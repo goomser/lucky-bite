@@ -14,7 +14,10 @@ FILTERED="$WORK/$SLUG.food.osm.pbf"
 OUT="$WORK/places-$SLUG.jsonl"
 
 echo "== $REGION: downloading"
-curl -fL --retry 5 --retry-delay 30 -C - -o "$RAW" "https://download.geofabrik.de/$REGION-latest.osm.pbf"
+# --speed-* abort a transfer that stalls below 100 KB/s for a minute (then --retry resumes it with -C -),
+# so a throttled mirror fails fast and retries instead of hanging the job for hours.
+curl -fL --retry 8 --retry-delay 30 --retry-all-errors -C - --speed-limit 100000 --speed-time 60 \
+     -o "$RAW" "https://download.geofabrik.de/$REGION-latest.osm.pbf"
 
 echo "== $REGION: filtering to eating places"
 # Keeps nodes/ways/relations tagged as eating places, plus the nodes those ways need (for coordinates).
