@@ -212,6 +212,12 @@ legend, .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .12em
 .range input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
 .range input[type=number]:focus-visible { outline: 3px solid var(--brass); }
 .range .unit { font-weight: 800; color: var(--muted); }
+.range .step {
+  width: 36px; height: 36px; border-radius: 8px; border: 2px solid var(--brass-dk); background: transparent;
+  color: var(--brass); font: 800 20px/1 var(--body); cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.range .step:active { background: var(--brass); color: var(--ink); }
+.range .step:focus-visible { outline: 3px solid var(--brass); }
 .loc { display: flex; gap: 8px; }
 .loc input[type=text] {
   flex: 1; min-width: 0; font: inherit; padding: 9px 12px; border-radius: 8px;
@@ -303,7 +309,9 @@ footer a { color: var(--muted); }
       <legend>How far will you go?</legend>
       <div class="range">
         <input type="range" id="radius" min="1" max="350" step="1" value="5">
+        <button class="step" id="radiusDown" type="button" aria-label="One mile less">−</button>
         <input type="number" id="radiusNum" min="1" max="350" step="1" value="5" inputmode="numeric" aria-label="Miles">
+        <button class="step" id="radiusUp" type="button" aria-label="One mile more">+</button>
         <span class="unit">mi</span>
       </div>
       <p class="hint" id="farHint" hidden>Past 40 mi the app picks a random spot inside your circle and spins from the restaurants around it, so every pull explores a different area.</p>
@@ -1330,6 +1338,15 @@ $('radiusNum').addEventListener('input', () => {   // follow along while typing,
   $('radius').value = Math.min(350, Math.max(1, v)); $('farHint').hidden = v <= FAR_MI; updateCount();
 });
 $('radiusNum').addEventListener('blur', () => { syncRadius($('radiusNum').value); renderChipRows(); updateCount(); savePrefs(); });
+// − / + nudge by one mile; press and hold keeps stepping.
+function nudge(d) { syncRadius(+$('radius').value + d); renderChipRows(); updateCount(); savePrefs(); }
+for (const [id, d] of [['radiusDown', -1], ['radiusUp', 1]]) {
+  const b = $(id); let t = null, r = null;
+  const stop = () => { clearTimeout(t); clearInterval(r); t = r = null; };
+  b.addEventListener('pointerdown', e => { e.preventDefault(); nudge(d); t = setTimeout(() => { r = setInterval(() => nudge(d), 90); }, 450); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
+  b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nudge(d); } });
+}
 document.querySelectorAll('#drawer input:not([name=cuisine]):not([name=need])').forEach(i => i.addEventListener('change', () => { renderCuisineChips(); updateCount(); savePrefs(); }));
 $('locGo').addEventListener('click', () => { savePrefs(); load(); });
 $('locText').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); savePrefs(); load(); } });
