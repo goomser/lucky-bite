@@ -22,6 +22,7 @@ export default {
 
     try {
       if (url.pathname === '/places' && request.method === 'POST') return await places(request, env, cors);
+      if (url.pathname === '/nearby' && request.method === 'POST') return await nearby(request, env, cors);
       if (url.pathname === '/count') return await count(request, env, cors);
       return json({ error: 'not found' }, 404, cors);
     } catch (e) {
@@ -29,6 +30,65 @@ export default {
     }
   },
 };
+
+// ---------- /nearby : { lat, lon, radiusMi, types? } -> { places: [...], cached } ----------
+// Google's Nearby Search returns at most 20 places per call, nearest first. To cover a real radius
+// we ask at a small ring of centers (the middle plus up to 6 around it) and merge. The answer is
+// cached for a day per rounded location / radius / types, so a household's repeat opens are free.
+const NEARBY_TTL = 24 * 3600;
+const NEARBY_FIELDS = 'places.id,places.displayName,places.formattedAddress,places.location,places.businessStatus,'
+  + 'places.primaryType,places.types,places.priceLevel,places.rating,places.userRatingCount,'
+  + 'places.currentOpeningHours.openNow,places.googleMapsUri,places.nationalPhoneNumber,places.websiteUri';
+const EAT_TYPES = ['restaurant', 'fast_food_restaurant', 'cafe', 'coffee_shop', 'bar', 'pub', 'meal_takeaway', 'pizza_restaurant',
+  'sandwich_shop', 'bakery', 'ice_cream_shop', 'diner', 'bar_and_grill', 'steak_house', 'sushi_restaurant', 'ramen_restaurant',
+  'hamburger_restaurant', 'breakfast_restaurant', 'brunch_restaurant', 'food_court', 'tea_house', 'dessert_shop'];
+
+async function nearby(request, env, cors) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.lat !== 'number' || typeof body.lon !== 'number') return json({ error: 'bad request' }, 400, cors);
+  const radiusMi = Math.min(31, Math.max(0.5, Number(body.radiusMi) || 5));   // Google caps a search at 50 km
+  const types = Array.isArray(body.types) && body.types.length ? body.types.slice(0, 10) : null;
+
+  // Cache key: location rounded to ~0.7 mi so the whole household shares one entry.
+  const key = `n:${body.lat.toFixed(2)},${body.lon.toFixed(2)}:${radiusMi}:${types ? types.join('+') : 'all'}`;
+  const cached = await env.CACHE.get(key, 'json');
+  if (cached) return json({ places: cached, cached: true }, 200, cors);
+
+  // Centers: the origin plus a ring at ~55% of the radius when the radius is big enough to need it.
+  const centers = [[body.lat, body.lon]];
+  if (radiusMi >= 3) {
+    const r = radiusMi * 0.55, dLat = r / 69, dLon = r / (69 * Math.cos(body.lat * Math.PI / 180));
+    for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; centers.push([body.lat + dLat * Math.sin(a), body.lon + dLon * Math.cos(a)]); }
+  }
+  const perCallRadiusM = Math.round(Math.min(50000, (radiusMi >= 3 ? radiusMi * 0.6 : radiusMi) * 1609));
+  const seen = new Map();
+  await Promise.all(centers.map(async ([lat, lon]) => {
+    const r = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': env.GOOGLE_KEY, 'X-Goog-FieldMask': NEARBY_FIELDS },
+      body: JSON.stringify({ includedPrimaryTypes: types || EAT_TYPES, maxResultCount: 20, rankPreference: 'DISTANCE',
+        locationRestriction: { circle: { center: { latitude: lat, longitude: lon }, radius: perCallRadiusM } } }),
+    });
+    if (!r.ok) return;
+    for (const g of (await r.json()).places || []) {
+      if (g.businessStatus && g.businessStatus !== 'OPERATIONAL') continue;
+      // Airport concourses: real, but you can't walk in without a boarding pass. Skip unless the search is centered there.
+      const txt = ((g.displayName && g.displayName.text) || '') + ' ' + (g.formattedAddress || '');
+      if (/\b(airport|terminal|concourse|CVG|gate [A-Z]?\d)\b/i.test(txt) && miles(body.lat, body.lon, g.location.latitude, g.location.longitude) > 1) continue;
+      if (!g.location || miles(body.lat, body.lon, g.location.latitude, g.location.longitude) > radiusMi) continue;
+      if (!seen.has(g.id)) seen.set(g.id, slim(g));
+    }
+  }));
+  const places = [...seen.values()];
+  if (places.length) await env.CACHE.put(key, JSON.stringify(places), { expirationTtl: NEARBY_TTL });
+  return json({ places, cached: false }, 200, cors);
+}
+// Keep only what the app shows, so cached entries stay small.
+function slim(g) {
+  return { id: g.id, name: g.displayName && g.displayName.text, addr: g.formattedAddress, lat: g.location.latitude, lon: g.location.longitude,
+    type: g.primaryType || '', types: g.types || [], price: g.priceLevel || '', rating: g.rating, ratingCount: g.userRatingCount,
+    openNow: g.currentOpeningHours ? g.currentOpeningHours.openNow : null, maps: g.googleMapsUri, phone: g.nationalPhoneNumber, website: g.websiteUri };
+}
 
 // ---------- /places : { id, name, addr, lat, lon } -> { place: <Google record> | null } ----------
 async function places(request, env, cors) {

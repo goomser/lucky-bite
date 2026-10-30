@@ -294,7 +294,7 @@ footer .copy { color: var(--cream); font-weight: 700; }
   <span class="servedLabel">Lucky Bites served</span>
 </div>
 
-<footer><span class="copy">© <span id="years">2026</span> Novalis. All rights reserved.</span><br>Restaurant index © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors and <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps Foundation</a>. Hours, ratings and prices on each result come live from Google. <span id="dataNote"></span></footer>
+<footer><span class="copy">© <span id="years">2026</span> Novalis. All rights reserved.</span><br><span id="sourceNote">Restaurants, hours, ratings and prices from Google.</span> <span id="dataNote"></span></footer>
 
 <!-- Filters -->
 <div class="scrim" id="scrim" hidden></div>
@@ -575,6 +575,7 @@ async function loadIndex() {
 }
 function describeData() {
   const n = index ? Object.values(index.tiles).reduce((a, b) => a + b, 0) : 0;
+  $('sourceNote').innerHTML = 'Restaurant index © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors and <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps Foundation</a>; details from Google.';
   $('dataNote').textContent = index ? `${n.toLocaleString()} places worldwide, data from ${index.built}.` : 'Live search mode (no prebuilt data found).';
 }
 
@@ -652,6 +653,9 @@ function bboxAround(o, radiusMi) {
 }
 
 async function fetchPlaces(o, radiusMi) {
+  if (SOURCE === 'google' && WORKER_URL) {
+    try { const list = await fetchNearby(o, radiusMi); detectChains(list); return list; } catch (e) { /* fall through to the index */ }
+  }
   if (!index) {
     // Live mode: remember results on the device for a week so repeat opens don't wait on the map server.
     const k = `live:${o.lat.toFixed(2)},${o.lon.toFixed(2)},${radiusMi}`;
@@ -817,6 +821,7 @@ const FAMILIES = [
 ];
 const FAMILY_LABEL = Object.fromEntries(FAMILIES.map(f => [f[0], f[1]]));
 function familyOf(p) {
+  if (p.googled && FAMILY_LABEL[p.cuisine]) return p.cuisine;
   const c = (p.cuisine || '').toLowerCase().replace(/ /g, '_');
   if (!c) return '';
   for (const [id, , rx] of FAMILIES) if (rx.test(c)) return id;
@@ -985,7 +990,7 @@ function candidates({ ignoreCuisine, ignoreNeeds } = {}) {
     if (!f.price.includes(p.price)) return false;
     if (f.chain === 'no' && p.isChain) return false;
     if (f.chain === 'yes' && !p.isChain) return false;
-    if (f.open === 'yes' && openNow(p.hours) === false) return false;
+    if (f.open === 'yes' && (p.gOpenNow === false || (p.gOpenNow == null && openNow(p.hours) === false))) return false;
     if (f.delivery === 'yes' && !/^(yes|only)$/.test(p.delivery)) return false;
     if (f.delivery === 'no' && p.delivery === 'only') return false;
     p.dist = haversineMi(origin, p);
@@ -1001,6 +1006,7 @@ const MAX_TILES_AT_ONCE = 30;
 function isFar() {
   const r = readFilters().radius;
   if (r > FAR_MI) return true;
+  if (SOURCE === 'google' && WORKER_URL) return false;
   if (index && origin) return tileKeysFor(bboxAround(origin, r)).length > MAX_TILES_AT_ONCE;
   return false;
 }
@@ -1030,6 +1036,14 @@ function randomPointWithin(o, radiusMi) {
   return { lat: o.lat + dLat, lon: o.lon + dLon };
 }
 async function farPool(radiusMi) {
+  if (SOURCE === 'google' && WORKER_URL) {
+    for (let i = 0; i < 4; i++) {
+      const spot = randomPointWithin(origin, Math.max(0, radiusMi - SPOT_MI));
+      setStatus(`Scouting ${Math.round(haversineMi(origin, spot))} mi out…`);
+      try { const list = await fetchNearby(spot, SPOT_MI); detectChains(list); const pool = filterPool(list); if (pool.length) return pool; } catch {}
+    }
+    return [];
+  }
   if (index) return farPoolFromTiles(radiusMi);
   for (let i = 0; i < 5; i++) {
     const spot = randomPointWithin(origin, Math.max(0, radiusMi - SPOT_MI));
@@ -1046,7 +1060,7 @@ async function farPool(radiusMi) {
 // Loads places for an origin. `quiet` = a background refresh: never touch the reel text or block the lever.
 async function loadAt(o, { quiet } = {}) {
   origin = o; places = []; fetchedRadiusMi = 0;
-  if (index === null && !indexTried) { indexTried = true; await loadIndex(); describeData(); }
+  if (SOURCE !== 'google' && index === null && !indexTried) { indexTried = true; await loadIndex(); describeData(); }
   if (isFar()) { if (!quiet) $('idle').textContent = 'Pull the handle'; updateCount(); prefetchFar(); return; }
   // Live search is slow, so fetch a bit wider than asked; tiles are cheap, so fetch exactly what's asked.
   const want = index ? readFilters().radius : Math.min(FAR_MI, Math.max(readFilters().radius, 10));
@@ -1297,6 +1311,7 @@ function showResult(p) {
       ${p.rating ? `<span title="Google rating">★ <b>${p.rating.toFixed(1)}</b> <small>(${Number(p.ratingCount).toLocaleString()})</small></span>` : ''}
       ${p.addr || p.locality ? `<span>${esc([p.addr, p.locality].filter(Boolean).join(', '))}</span>` : ''}
       ${p.gHoursToday ? `<span>${esc(p.gHoursToday)}${p.gOpenNow === true ? ' <b style="color:#2f7d3a">· open now</b>' : p.gOpenNow === false ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>`
+        : p.gOpenNow === true ? '<span><b style="color:#2f7d3a">open now</b></span>' : p.gOpenNow === false ? '<span><b style="color:#9a2a24">closed now</b></span>'
         : hoursToday(p.hours) ? `<span>${esc(hoursToday(p.hours))}${open === true ? ' <b style="color:#2f7d3a">· open now</b>' : open === false && hoursToday(p.hours) !== 'Closed today' ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>` : ''}
     </div>
     <p class="synopsis">${esc(synopsis(p))}${p.googled ? ' <small style="color:#8a6a58">Details via Google.</small>' : ''}</p>
@@ -1329,6 +1344,51 @@ const GOOGLE_KEY = '';   // no longer needed in the page: the worker holds the k
 // When set, Google lookups and the counter go through your Cloudflare worker (see worker/README.md):
 // the key stays server-side and answers are cached for everyone. Blank = call Google directly.
 const WORKER_URL = 'https://lucky-bite.lucky-bite.workers.dev';
+// Where the reel comes from. 'google': live Nearby Search through the worker (current, no ghosts).
+// 'index': the prebuilt OpenStreetMap/Overture tiles (offline-capable fallback).
+const SOURCE = 'google';
+const GTYPE_FAMILY = { pizza_restaurant: 'pizza', hamburger_restaurant: 'burgers', sandwich_shop: 'sandwich', sushi_restaurant: 'japanese', ramen_restaurant: 'japanese',
+  japanese_restaurant: 'japanese', chinese_restaurant: 'chinese', korean_restaurant: 'korean', thai_restaurant: 'thai', vietnamese_restaurant: 'vietnamese',
+  indian_restaurant: 'indian', middle_eastern_restaurant: 'middle_eastern', lebanese_restaurant: 'middle_eastern', turkish_restaurant: 'middle_eastern',
+  greek_restaurant: 'greek', mediterranean_restaurant: 'mediterranean', italian_restaurant: 'italian', mexican_restaurant: 'mexican', brazilian_restaurant: 'latin',
+  spanish_restaurant: 'spanish', french_restaurant: 'french', german_restaurant: 'german', american_restaurant: 'american', barbecue_restaurant: 'bbq',
+  steak_house: 'steak', seafood_restaurant: 'seafood', breakfast_restaurant: 'breakfast', brunch_restaurant: 'breakfast', vegan_restaurant: 'vegetarian',
+  vegetarian_restaurant: 'vegetarian', cafe: 'coffee', coffee_shop: 'coffee', tea_house: 'coffee', ice_cream_shop: 'dessert', dessert_shop: 'dessert',
+  bakery: 'dessert', indonesian_restaurant: 'asian', asian_restaurant: 'asian', african_restaurant: 'african', diner: 'american', fast_food_restaurant: '' };
+// Google has no chain flag. Names that repeat often within the loaded set are chains (set after each load).
+let CHAINS = new Set();
+function detectChains(list) {
+  const c = new Map(); for (const p of list) { const k = normName(p.name).replace(/[^a-z]/g, ''); c.set(k, (c.get(k) || 0) + 1); }
+  CHAINS = new Set([...c].filter(([k, n]) => n >= 2 || KNOWN_CHAINS.has(k)).map(([k]) => k));
+  for (const p of list) p.isChain = CHAINS.has(normName(p.name).replace(/[^a-z]/g, ''));
+}
+const KNOWN_CHAINS = new Set(`mcdonalds burgerking wendys tacobell chickfila subway starbucks dunkin dominos pizzahut papajohns littlecaesars kfc popeyes arbys sonic
+ chipotle qdoba pandaexpress fiveguys culvers whitecastle rallys checkers jimmyjohns pennstation firehousesubs jerseymikes potbelly panerabread olivegarden
+ applebees chilis tgifridays outback texasroadhouse longhornsteakhouse redlobster ihop dennys wafflehouse bobevans crackerbarrel frischsbigboy skylinechili
+ goldstarchili larosas donatos deweyspizza buffalowildwings wingstop raisingcanes zaxbys bojangles cookout steaknshake freddys smashburger shakeshack
+ chuyschipotle moes bibibop noodlesandcompany redrobin hooters daveandbusters cheesecakefactory pfchangs bonefishgrill carrabbas cheddars golden corral
+ cicis marcos hungryhowies papamurphys jets dairyqueen bruster graeters unitedairyfarmers tacojohns delTaco eljefe torchys cava sweetgreen tropicalsmoothie
+ jambajuice smoothieking crumbl insomnia einsteinbros bruegger tim hortons krispykreme`.split(/\s+/).filter(Boolean));
+const GPRICE_N = { PRICE_LEVEL_FREE: 1, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 };
+function fromGoogle(g) {
+  const t = g.type || '', types = g.types || [];
+  const amenity = /bar|pub/.test(t) && !/bar_and_grill/.test(t) ? 'bar' : /cafe|coffee|tea_house|bakery|ice_cream|dessert/.test(t) ? 'cafe'
+    : /fast_food|meal_takeaway|sandwich_shop|hamburger/.test(t) ? 'fast_food' : 'restaurant';
+  const fam = GTYPE_FAMILY[t] !== undefined ? GTYPE_FAMILY[t] : (t.endsWith('_restaurant') ? t.replace(/_restaurant$/, '').replace(/_/g, ' ') : '');
+  const badges = [];
+  if (types.includes('bar') || types.includes('pub') || /steak_house|bar_and_grill/.test(t)) badges.push('al');
+  if (types.includes('vegan_restaurant')) badges.push('vg'); if (types.includes('vegetarian_restaurant')) badges.push('ve');
+  return { id: 'g' + g.id, gid: g.id, name: g.name, lat: g.lat, lon: g.lon, amenity, isChain: CHAINS.has(normName(g.name).replace(/[^a-z]/g, '')), brand: '',
+    cuisine: fam, price: GPRICE_N[g.price] || 2, priceEst: !g.price, hours: '', delivery: '', addr: (g.addr || '').replace(/, (USA|United States)$/, ''), locality: '',
+    website: g.website || '', badges: badges.join(','), menu: '', phone: g.phone || '', rating: g.rating, ratingCount: g.ratingCount || 0,
+    gOpenNow: g.openNow, maps: g.maps, googled: true, verified: true };
+}
+async function fetchNearby(o, radiusMi, types) {
+  const r = await fetch(WORKER_URL.replace(/\/$/, '') + '/nearby', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lat: o.lat, lon: o.lon, radiusMi, types: types || undefined }) });
+  if (!r.ok) throw new Error('nearby ' + r.status);
+  return ((await r.json()).places || []).map(fromGoogle);
+}
 const GOOGLE_DAILY_CAP = 400;  // per device per day; a household's use stays well inside the free tier
 // Google results are kept on the device for up to 7 days (Google's terms allow short-term caching),
 // so re-spinning the same hundred local places costs almost nothing.
@@ -1392,6 +1452,7 @@ function nearest(places, p) {
 // address, all applied to the card. Cached per place for a week.
 const GFIELDS = 'places.id,places.displayName,places.formattedAddress,places.location,places.businessStatus,places.currentOpeningHours,places.priceLevel,places.rating,places.userRatingCount,places.googleMapsUri,places.nationalPhoneNumber,places.websiteUri';
 async function googleVerify(p) {
+  if (p.googled) return { verdict: 'open' };   // came from Google's own search; nothing to verify
   const c = gcache.get(p.id);
   if (c) return c;
   if (!googleBudgetOk()) return { verdict: 'unknown' };
