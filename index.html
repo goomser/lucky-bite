@@ -161,6 +161,10 @@ main { flex: 1; display: flex; flex-direction: column; justify-content: center; 
 .lever[disabled] { opacity: .5; cursor: default; }
 
 /* ---------- Controls row ---------- */
+.handNote { margin: 0; text-align: center; font-size: 13px; color: var(--muted); font-weight: 700; letter-spacing: .04em; }
+.hand { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.handLabel { font-size: 12px; color: #8a6a58; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
+.btn.ghost2 { border-color: #c9b58a; color: var(--ink); background: #f3e9d2; }
 .controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 560px; margin: 0 auto; width: 100%; }
 .btn {
   font: inherit; font-weight: 800; letter-spacing: .02em;
@@ -282,6 +286,7 @@ footer .copy { color: var(--cream); font-weight: 700; }
     <button class="btn" id="relocate" type="button">Use my location</button>
     <button class="btn primary" id="spinBtn" type="button" disabled>Spin</button>
   </div>
+  <p class="handNote" id="handNote" hidden></p>
 </main>
 
 <div class="served" id="served" hidden>
@@ -376,6 +381,15 @@ footer .copy { color: var(--cream); font-weight: 700; }
         <label><input type="radio" name="open" value="yes"><span>Skip ones that look closed</span></label>
       </div>
       <p class="hint">Uses posted hours when OSM has them; places with no hours listed are kept.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Pulls</legend>
+      <div class="seg">
+        <label><input type="radio" name="pulls" value="meal" checked><span>3 per meal</span></label>
+        <label><input type="radio" name="pulls" value="unlimited"><span>Unlimited</span></label>
+      </div>
+      <p class="hint">Three pulls per breakfast, lunch and dinner, then pick one. Decisive by design.</p>
     </fieldset>
 
     <fieldset>
@@ -927,7 +941,10 @@ function synopsis(p) {
   const who = p.isChain ? 'Chain' : 'Independent';
   const cuisine = (p.cuisine || '').replace(/\b\w/g, c => c.toUpperCase());
   const what = [cuisine, p.amenity === 'restaurant' ? 'restaurant' : label(p.amenity)].filter(Boolean).join(' ');
-  const perks = badgeLabels(p.badges || '').map(b => b.text.toLowerCase());
+  // Only perks that read naturally after "with": amenities and diet options, not facts like "serves alcohol".
+  const WITHABLE = { vg: 'vegan options', ve: 'vegetarian options', pe: 'pescatarian options', gf: 'gluten-free options', lf: 'lactose-free options',
+    tk: 'takeout', dt: 'a drive-through', os: 'outdoor seating', kf: 'kid-friendly extras' };
+  const perks = (p.badges || '').split(',').map(c => WITHABLE[c.replace('!', '')]).filter(Boolean);
   if (/^(yes|only)$/.test(p.delivery)) perks.push('delivery');
   let s = `${who} ${what}`;
   if (perks.length) s += ` with ${perks.length > 1 ? perks.slice(0, -1).join(', ') + ' and ' + perks.at(-1) : perks[0]}`;
@@ -1001,6 +1018,7 @@ function updateCount() {
   $('count').textContent = origin ? `${n} place${n === 1 ? '' : 's'} match` : '';
   const ready = n > 0 && !spinning;
   $('lever').disabled = !ready; $('spinBtn').disabled = !ready;
+  if (origin) showHand();
   if (origin && !spinning) setStatus(`${n} spots within ${f.radius} mi of ${origin.label}`);
 }
 
@@ -1139,8 +1157,61 @@ reel.addEventListener('click', e => {
 function label(a) { return { restaurant: 'restaurant', fast_food: 'fast food', cafe: 'café', bar: 'bar' }[a] || a; }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
+// ---------- Pulls per meal ----------
+// The lever is not infinite: a hand of PULLS per mealtime, then "pick one". Hands reset at the
+// meal boundaries below (local time), or when you change location. Spin-agains cost a pull;
+// browsing the names above and below the payline does not.
+const PULLS = 3;
+const MEAL_STARTS = [4, 11, 16];   // breakfast 4 am, lunch 11 am, dinner 4 pm
+function mealKey(d = new Date()) {
+  const h = d.getHours();
+  let idx = MEAL_STARTS.length - 1; for (let i = 0; i < MEAL_STARTS.length; i++) if (h >= MEAL_STARTS[i]) idx = i;
+  if (h < MEAL_STARTS[0]) { const y = new Date(d); y.setDate(y.getDate() - 1); return y.toDateString() + '#' + (MEAL_STARTS.length - 1); }
+  return d.toDateString() + '#' + idx;
+}
+function nextMeal(d = new Date()) {
+  const h = d.getHours();
+  for (const m of MEAL_STARTS) if (h < m) { const n = new Date(d); n.setHours(m, 0, 0, 0); return n; }
+  const n = new Date(d); n.setDate(n.getDate() + 1); n.setHours(MEAL_STARTS[0], 0, 0, 0); return n;
+}
+let hand = { key: '', at: '', picks: [] };
+try { hand = JSON.parse(localStorage.getItem('luckybite.hand') || 'null') || hand; } catch {}
+function originKey() { return origin ? `${origin.lat.toFixed(2)},${origin.lon.toFixed(2)}` : ''; }
+function freshHand() {
+  if (hand.key !== mealKey() || hand.at !== originKey()) hand = { key: mealKey(), at: originKey(), picks: [] };
+  return hand;
+}
+function saveHand() { try { localStorage.setItem('luckybite.hand', JSON.stringify(hand)); } catch {} }
+function pullsLeft() { return unlimitedPulls ? Infinity : Math.max(0, PULLS - freshHand().picks.length); }
+let unlimitedPulls = false;
+try { unlimitedPulls = localStorage.getItem('luckybite.unlimited') === '1'; } catch {}
+function recordPick(p) {
+  freshHand();
+  if (!hand.picks.some(q => q.id === p.id)) hand.picks.push({ id: p.id, name: p.name, lat: p.lat, lon: p.lon });
+  saveHand();
+}
+function showHand() {
+  const h = freshHand(), left = pullsLeft();
+  const el = $('handNote');
+  if (unlimitedPulls) { el.hidden = true; return; }
+  el.hidden = false;
+  if (left > 0) el.textContent = `${left} pull${left === 1 ? '' : 's'} left this meal`;
+  else el.textContent = `Out of pulls until ${fmtTime(nextMeal().getHours() * 60)}`;
+}
+function showPickOne() {
+  const h = freshHand();
+  const picks = h.picks.map(q => places.find(p => p.id === q.id) || currentStrip.find(p => p && p.id === q.id)).filter(Boolean);
+  $('result').innerHTML = `
+    <h2>Out of pulls. Pick one!</h2>
+    <p class="synopsis">Your ${picks.length} for this meal. The lever comes back at ${fmtTime(nextMeal().getHours() * 60)}.</p>
+    <div class="hand">${picks.map((p, i) => `<button class="btn small dark" type="button" data-i="${i}">${esc(p.name)}</button>`).join('')}</div>`;
+  $('result').hidden = false;
+  $('result').querySelectorAll('.hand button').forEach(b => b.addEventListener('click', () => { const p = picks[+b.dataset.i]; p.dist = haversineMi(origin, p); showResult(p); }));
+}
+
 async function spin() {
   if (spinning || !origin) return;
+  if (pullsLeft() <= 0) { showPickOne(); bulbs('idle'); return; }
   spinning = true;
   $('lever').disabled = true; $('spinBtn').disabled = true;
   let pool;
@@ -1206,7 +1277,9 @@ async function spin() {
     requestAnimationFrame(frame);
   });
 
+  recordPick(pick);
   showResult(pick);
+  showHand();
   counter('hit');
   growStrip(); // add names below the pick so you can browse downward too
   spinning = false; bulbs('win'); updateCount();
@@ -1234,6 +1307,15 @@ function showResult(p) {
       ${p.phone ? `<a class="btn small dark" href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}" title="${esc(p.phone)}">Call ${esc(p.phone)}</a>` : ''}
       <button class="btn small dark" type="button" id="again">Spin again</button>
     </div>`;
+  const h = freshHand();
+  if (!unlimitedPulls && h.picks.length > 1) {
+    const others = h.picks.filter(q => q.id !== p.id);
+    if (others.length) $('result').insertAdjacentHTML('beforeend', `<div class="hand"><span class="handLabel">Also in your hand:</span>${others.map(q => `<button class="btn small ghost2" type="button" data-id="${esc(q.id)}">${esc(q.name)}</button>`).join('')}</div>`);
+    $('result').querySelectorAll('.hand button').forEach(b => b.addEventListener('click', () => {
+      const q = places.find(x => x.id === b.dataset.id) || currentStrip.find(x => x && x.id === b.dataset.id);
+      if (q) { q.dist = haversineMi(origin, q); showResult(q); }
+    }));
+  }
   $('result').hidden = false;
   $('again').addEventListener('click', spin);
 
@@ -1374,11 +1456,19 @@ for (const [id, d] of [['radiusDown', -1], ['radiusUp', 1]]) {
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
   b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nudge(d); } });
 }
-document.querySelectorAll('#drawer input:not([name=cuisine]):not([name=need])').forEach(i => i.addEventListener('change', () => { renderChipRows(); updateCount(); savePrefs(); }));
+document.querySelectorAll('#drawer input:not([name=cuisine]):not([name=need]):not([name=pulls])').forEach(i => i.addEventListener('change', () => { renderChipRows(); updateCount(); savePrefs(); }));
 $('locGo').addEventListener('click', () => { savePrefs(); load(); });
 $('locText').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); savePrefs(); load(); } });
 
-function openDrawer() { $('drawer').hidden = false; $('scrim').hidden = false; renderChipRows(); updateCount(); }
+function openDrawer() {
+  $('drawer').hidden = false; $('scrim').hidden = false;
+  document.querySelector(`input[name=pulls][value=${unlimitedPulls ? 'unlimited' : 'meal'}]`).checked = true;
+  renderChipRows(); updateCount();
+}
+document.querySelectorAll('input[name=pulls]').forEach(i => i.addEventListener('change', () => {
+  unlimitedPulls = i.value === 'unlimited' && i.checked; try { localStorage.setItem('luckybite.unlimited', unlimitedPulls ? '1' : '0'); } catch {}
+  showHand(); updateCount();
+}));
 function closeDrawer() {
   $('drawer').hidden = true; $('scrim').hidden = true; savePrefs();
   if (currentIndex >= 0 && !spinning && !$('result').hidden) showResult(currentStrip[currentIndex]); // e.g. new maps choice

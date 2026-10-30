@@ -36,6 +36,10 @@ python3 pipeline/tile.py data work/places-*.jsonl
 python3 -m http.server 8000      # then open http://localhost:8000
 ```
 
+## Pulls per meal
+
+The lever gives three pulls per mealtime (hands reset at 4 am, 11 am and 4 pm local time, or when you change location), then shows the hand and asks you to pick one. Filters has an "Unlimited" switch.
+
 ## Data notes
 
 - Price (`$`–`$$$$`) comes from OSM's `price_range` tag when present; otherwise it's estimated from the type and cuisine and
