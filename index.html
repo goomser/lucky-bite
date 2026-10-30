@@ -1326,6 +1326,9 @@ function showResult(p) {
 // does this place still exist? Permanently-closed places are skipped before you see them.
 // A second, optional tap fetches hours / rating / price (those fields bill at a pricier tier).
 const GOOGLE_KEY = 'AIzaSyCSIZxA4y6MPtKIBQsyPvxADlpbGo-FnqE';   // set to your restricted Places API (New) key; blank = Google layer off
+// When set, Google lookups and the counter go through your Cloudflare worker (see worker/README.md):
+// the key stays server-side and answers are cached for everyone. Blank = call Google directly.
+const WORKER_URL = '';
 const GOOGLE_DAILY_CAP = 400;  // per device per day; a household's use stays well inside the free tier
 // Google results are kept on the device for up to 7 days (Google's terms allow short-term caching),
 // so re-spinning the same hundred local places costs almost nothing.
@@ -1335,7 +1338,7 @@ try { for (const [k, v] of JSON.parse(localStorage.getItem('luckybite.gcache') |
 function saveGcache() { try { localStorage.setItem('luckybite.gcache', JSON.stringify([...gcache].slice(-600))); } catch {} }
 
 function googleBudgetOk() {
-  if (!GOOGLE_KEY) return false;
+  if (!GOOGLE_KEY && !WORKER_URL) return false;
   try {
     const d = new Date().toISOString().slice(0, 10);
     const u = JSON.parse(localStorage.getItem('luckybite.gq') || '{}');
@@ -1394,7 +1397,15 @@ async function googleVerify(p) {
   if (!googleBudgetOk()) return { verdict: 'unknown' };
   let out = { verdict: 'unknown', at: Date.now() };
   try {
-    const g = nearest(await gfetch(GFIELDS, gquery(p)), p);
+    let g;
+    if (WORKER_URL) {
+      const r = await fetch(WORKER_URL.replace(/\/$/, '') + '/places', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: p.id, name: p.name, addr: p.addr, lat: p.lat, lon: p.lon }) });
+      if (!r.ok) throw new Error('worker ' + r.status);
+      g = (await r.json()).place;           // the worker already applied the same matching rule
+    } else {
+      g = nearest(await gfetch(GFIELDS, gquery(p)), p);
+    }
     if (g) out = { verdict: g.businessStatus === 'CLOSED_PERMANENTLY' ? 'closed' : 'open', g, at: Date.now() };
   } catch {}
   gcache.set(p.id, out); saveGcache();
@@ -1429,7 +1440,9 @@ function showServed(n) {
 }
 async function counter(op) {
   try {
-    const r = await fetch(COUNTER.replace('{op}', op), { cache: 'no-store' });
+    const r = WORKER_URL
+      ? await fetch(WORKER_URL.replace(/\/$/, '') + '/count', { method: op === 'hit' ? 'POST' : 'GET', cache: 'no-store' })
+      : await fetch(COUNTER.replace('{op}', op), { cache: 'no-store' });
     if (!r.ok) throw new Error(r.status);
     showServed((await r.json()).value);
   } catch { /* counter service unreachable: leave it hidden */ }

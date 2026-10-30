@@ -1,0 +1,17 @@
+# Lucky Bite worker: one small server that sits between the app and Google.
+#  - /places  : verifies a restaurant with Google, caching the answer for everyone for 7 days
+#  - /count   : the "Lucky Bites served" counter (replaces the third-party Abacus service)
+# Deploy with:  npx wrangler deploy      (after `npx wrangler login` once)
+name = "lucky-bite"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# KV is Cloudflare's key-value store: free tier is plenty (100k reads/day, 1k writes/day).
+# Create it once with:  npx wrangler kv namespace create CACHE
+# then paste the id it prints below.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "PASTE_KV_ID_HERE"
+
+[vars]
+ALLOWED_ORIGIN = "https://goomser.github.io"
