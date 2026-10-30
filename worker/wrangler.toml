@@ -11,7 +11,7 @@ compatibility_date = "2026-10-01"
 # then paste the id it prints below.
 [[kv_namespaces]]
 binding = "CACHE"
-id = "PASTE_KV_ID_HERE"
+id = "3d2ad3b3d5d642b3add6c2a8712bd259"
 
 [vars]
 ALLOWED_ORIGIN = "https://goomser.github.io"
