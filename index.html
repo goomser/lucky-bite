@@ -1218,8 +1218,8 @@ function showPickOne() {
   const h = freshHand();
   const picks = h.picks.map(q => places.find(p => p.id === q.id) || currentStrip.find(p => p && p.id === q.id)).filter(Boolean);
   $('result').innerHTML = `
-    <h2>Out of pulls. Pick one!</h2>
-    <p class="synopsis">Your ${picks.length} for this meal. The lever comes back at ${fmtTime(nextMeal().getHours() * 60)}.</p>
+    <h2>That's your ${picks.length === 1 ? 'pull' : picks.length === 2 ? 'two' : 'three'}. Pick one!</h2>
+    <p class="synopsis">The lever comes back at ${fmtTime(nextMeal().getHours() * 60)}. Tap a name to see its card; you can flip between them.</p>
     <div class="hand">${picks.map((p, i) => `<button class="btn small dark" type="button" data-i="${i}">${esc(p.name)}</button>`).join('')}</div>`;
   $('result').hidden = false;
   $('result').querySelectorAll('.hand button').forEach(b => b.addEventListener('click', () => { const p = picks[+b.dataset.i]; p.dist = haversineMi(origin, p); showResult(p); }));
@@ -1307,6 +1307,8 @@ async function spin() {
   showResult(pick);
   showHand();
   counter('hit');
+  // Third pull: the hand is complete. Show it and ask for a decision.
+  if (!unlimitedPulls && pullsLeft() === 0) setTimeout(showPickOne, 900);
   growStrip(); // add names below the pick so you can browse downward too
   spinning = false; bulbs('win'); updateCount();
   if (isFar()) prefetchFar(); // line up the next pull while they read this one
