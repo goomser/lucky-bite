@@ -289,7 +289,7 @@ footer .copy { color: var(--cream); font-weight: 700; }
   <span class="servedLabel">Lucky Bites served</span>
 </div>
 
-<footer><span class="copy">© <span id="years">2026</span> Novalis. All rights reserved.</span><br>Restaurant index © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors and <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps Foundation</a>. Tap “More from Google” on a result for live hours, rating and price. <span id="dataNote"></span></footer>
+<footer><span class="copy">© <span id="years">2026</span> Novalis. All rights reserved.</span><br>Restaurant index © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors and <a href="https://overturemaps.org" target="_blank" rel="noopener">Overture Maps Foundation</a>. Hours, ratings and prices on each result come live from Google. <span id="dataNote"></span></footer>
 
 <!-- Filters -->
 <div class="scrim" id="scrim" hidden></div>
@@ -1164,7 +1164,7 @@ async function spin() {
   const verifying = (async () => {
     for (let t = 0; t < 3; t++) {
       const v = await googleVerify(pick);
-      if (v.verdict !== 'closed') { if (v.maps) pick.maps = v.maps; pick.verified = v.verdict === 'open'; return; }
+      if (v.verdict !== 'closed') { if (v.g) applyGoogleDetails(pick, v.g); pick.verified = v.verdict === 'open'; return; }
       rememberClosed(pick);
       const rest = pool.filter(q => q !== pick && !closedIds.has(q.id));
       if (!rest.length) return;
@@ -1226,24 +1226,16 @@ function showResult(p) {
       ${p.gHoursToday ? `<span>${esc(p.gHoursToday)}${p.gOpenNow === true ? ' <b style="color:#2f7d3a">· open now</b>' : p.gOpenNow === false ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>`
         : hoursToday(p.hours) ? `<span>${esc(hoursToday(p.hours))}${open === true ? ' <b style="color:#2f7d3a">· open now</b>' : open === false && hoursToday(p.hours) !== 'Closed today' ? ' <b style="color:#9a2a24">· closed now</b>' : ''}</span>` : ''}
     </div>
-    <p class="synopsis">${esc(synopsis(p))}${p.googled ? ' <small style="color:#8a6a58">Hours and rating via Google.</small>' : ''}</p>
+    <p class="synopsis">${esc(synopsis(p))}${p.googled ? ' <small style="color:#8a6a58">Details via Google.</small>' : ''}</p>
     ${badgeLabels(p.badges || '').length ? `<div class="badges">${badgeLabels(p.badges).map(b => `<span class="badge${b.diet ? ' diet' : ''}">${esc(b.text)}</span>`).join('')}</div>` : ''}
     <div class="actions">
       <a class="btn small gold" target="_blank" rel="noopener" href="${esc(menuLink(p))}" title="${p.menu ? 'Menu' : p.website ? 'Their website' : 'Search for the menu'}">Menu</a>
       <a class="btn small dark" target="_blank" rel="noopener" href="${esc(directionsLink(p))}">Directions</a>
       ${p.phone ? `<a class="btn small dark" href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}" title="${esc(p.phone)}">Call ${esc(p.phone)}</a>` : ''}
       <button class="btn small dark" type="button" id="again">Spin again</button>
-      ${GOOGLE_KEY && !p.googled ? `<button class="btn small dark" type="button" id="moreBtn" title="Hours, rating and price from Google">More from Google</button>` : ''}
     </div>`;
   $('result').hidden = false;
   $('again').addEventListener('click', spin);
-  const more = $('moreBtn');
-  if (more) more.addEventListener('click', async () => {
-    more.disabled = true; more.textContent = 'Asking Google…';
-    const g = await googleDetails(p);
-    if (g) { applyGoogleDetails(p, g); showResult(p); }
-    else more.textContent = 'Google had nothing';
-  });
 
 }
 
@@ -1252,8 +1244,13 @@ function showResult(p) {
 // does this place still exist? Permanently-closed places are skipped before you see them.
 // A second, optional tap fetches hours / rating / price (those fields bill at a pricier tier).
 const GOOGLE_KEY = 'AIzaSyCSIZxA4y6MPtKIBQsyPvxADlpbGo-FnqE';   // set to your restricted Places API (New) key; blank = Google layer off
-const GOOGLE_DAILY_CAP = 150;  // per device per day, well under the free tier for a family's use
-const gcache = new Map();      // id -> verdict for this session (Google allows short-term caching only)
+const GOOGLE_DAILY_CAP = 400;  // per device per day; a household's use stays well inside the free tier
+// Google results are kept on the device for up to 7 days (Google's terms allow short-term caching),
+// so re-spinning the same hundred local places costs almost nothing.
+const GCACHE_MS = 7 * 24 * 3600 * 1000;
+const gcache = new Map();
+try { for (const [k, v] of JSON.parse(localStorage.getItem('luckybite.gcache') || '[]')) if (Date.now() - v.at < GCACHE_MS) gcache.set(k, v); } catch {}
+function saveGcache() { try { localStorage.setItem('luckybite.gcache', JSON.stringify([...gcache].slice(-600))); } catch {} }
 
 function googleBudgetOk() {
   if (!GOOGLE_KEY) return false;
@@ -1279,37 +1276,55 @@ function gquery(p) {
   return { textQuery: p.name + (p.addr ? ', ' + p.addr : ''), maxResultCount: 3,
            locationBias: { circle: { center: { latitude: p.lat, longitude: p.lon }, radius: 1500 } } };
 }
+// The same place on Google: close by (0.6 mi) AND a name that resembles ours, since Google's
+// record replaces ours on the card. "Hofbrau Haus" ~ "Hofbräuhaus Newport" passes; "Subway" vs
+// "Skyline Chili" across the street does not.
+function normName(s) { return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ''); }
+function namesMatch(rawA, rawB) {
+  const a = normName(rawA), b = normName(rawB);
+  if (!a || !b) return false;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  // Word-level: every word of the shorter name (ignoring "and", "the", "&") appears in the longer one.
+  const words = x => (x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(w => w && !['and', 'the', 'of', 'restaurant', 'grill', 'bar', 'cafe', 'kitchen'].includes(w));
+  const wa = words(rawA), wb = words(rawB);
+  if (wa.length && wb.length) { const [short, long] = wa.length <= wb.length ? [wa, wb] : [wb, wa]; if (short.length >= 2 && short.every(w => long.includes(w))) return true; }
+  // Sliding 3-letter chunks: "wingsandrings" vs "buffalowingsrings" share most of them.
+  const grams = x => { const g = new Set(); for (let i = 0; i + 3 <= x.length; i++) g.add(x.slice(i, i + 3)); return g; };
+  const ta = grams(a), tb = grams(b);
+  let common = 0; for (const t of ta) if (tb.has(t)) common++;
+  return common / Math.min(ta.size, tb.size) >= 0.6;
+}
 function nearest(places, p) {
-  let best = null, bd = 0.6;   // must be within ~0.6 mi to count as the same place
+  let best = null, bd = 0.6;
   for (const g of places) {
     const loc = g.location; if (!loc) continue;
     const d = haversineMi(p, { lat: loc.latitude, lon: loc.longitude });
-    if (d < bd) { bd = d; best = g; }
+    if (d < bd && namesMatch(p.name, g.displayName && g.displayName.text)) { bd = d; best = g; }
   }
   return best;
 }
-// Cheap check on every pull (Google's Pro tier, 5,000 free a month): does this place still exist?
+// One Google call per pull: existence check plus hours, rating, price, and Google's own name and
+// address, all applied to the card. Cached per place for a week.
+const GFIELDS = 'places.id,places.displayName,places.formattedAddress,places.location,places.businessStatus,places.currentOpeningHours,places.priceLevel,places.rating,places.userRatingCount,places.googleMapsUri,places.nationalPhoneNumber,places.websiteUri';
 async function googleVerify(p) {
-  if (gcache.has(p.id)) return gcache.get(p.id);
+  const c = gcache.get(p.id);
+  if (c) return c;
   if (!googleBudgetOk()) return { verdict: 'unknown' };
-  let out = { verdict: 'unknown' };
+  let out = { verdict: 'unknown', at: Date.now() };
   try {
-    const g = nearest(await gfetch('places.id,places.displayName,places.businessStatus,places.location,places.googleMapsUri', gquery(p)), p);
-    if (g) out = { verdict: g.businessStatus === 'CLOSED_PERMANENTLY' ? 'closed' : 'open', gid: g.id, maps: g.googleMapsUri };
+    const g = nearest(await gfetch(GFIELDS, gquery(p)), p);
+    if (g) out = { verdict: g.businessStatus === 'CLOSED_PERMANENTLY' ? 'closed' : 'open', g, at: Date.now() };
   } catch {}
-  gcache.set(p.id, out);
+  gcache.set(p.id, out); saveGcache();
   return out;
-}
-// Richer details (Google's Enterprise tier, 1,000 free a month), only when asked for.
-async function googleDetails(p) {
-  if (!googleBudgetOk()) return null;
-  try {
-    return nearest(await gfetch('places.id,places.displayName,places.location,places.businessStatus,places.currentOpeningHours,places.priceLevel,places.rating,places.userRatingCount,places.googleMapsUri', gquery(p)), p) || null;
-  } catch { return null; }
 }
 const GPRICE = { PRICE_LEVEL_FREE: 1, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 };
 function applyGoogleDetails(p, g) {
   if (!g) return;
+  if (g.displayName && g.displayName.text) p.name = g.displayName.text;
+  if (g.formattedAddress) { p.addr = g.formattedAddress.replace(/, (USA|United States)$/, ''); p.locality = ''; }
+  if (g.nationalPhoneNumber) p.phone = g.nationalPhoneNumber;
+  if (g.websiteUri && !p.menu) p.website = g.websiteUri;
   if (g.priceLevel && GPRICE[g.priceLevel]) { p.price = GPRICE[g.priceLevel]; p.priceEst = false; }
   if (g.rating) { p.rating = g.rating; p.ratingCount = g.userRatingCount || 0; }
   if (g.currentOpeningHours) {
