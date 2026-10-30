@@ -1325,10 +1325,10 @@ function showResult(p) {
 // Our tiles are the index (fast, complete, free). Google answers one question per pull:
 // does this place still exist? Permanently-closed places are skipped before you see them.
 // A second, optional tap fetches hours / rating / price (those fields bill at a pricier tier).
-const GOOGLE_KEY = 'AIzaSyCSIZxA4y6MPtKIBQsyPvxADlpbGo-FnqE';   // set to your restricted Places API (New) key; blank = Google layer off
+const GOOGLE_KEY = '';   // no longer needed in the page: the worker holds the key. Set only if running without a worker.
 // When set, Google lookups and the counter go through your Cloudflare worker (see worker/README.md):
 // the key stays server-side and answers are cached for everyone. Blank = call Google directly.
-const WORKER_URL = '';
+const WORKER_URL = 'https://lucky-bite.lucky-bite.workers.dev';
 const GOOGLE_DAILY_CAP = 400;  // per device per day; a household's use stays well inside the free tier
 // Google results are kept on the device for up to 7 days (Google's terms allow short-term caching),
 // so re-spinning the same hundred local places costs almost nothing.
