@@ -134,6 +134,7 @@ main { flex: 1; display: flex; flex-direction: column; justify-content: center; 
 .result .actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .pill { display: inline-block; background: #efe2c4; border-radius: 999px; padding: 2px 9px; font-weight: 700; font-size: 12px; }
 .verified { font-family: var(--body); font-size: 14px; color: #2f7d3a; vertical-align: middle; }
+.onlyNote { grid-column: 1 / -1; margin: 0; font-size: 13px; font-weight: 700; color: #9a2a24; }
 .synopsis { grid-column: 1 / -1; margin: 2px 0 0; font-size: 14px; line-height: 1.4; color: #3b2719; }
 .btn.gold { background: var(--brass); border-color: var(--brass); color: var(--ink); }
 .badges { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1025,7 +1026,7 @@ function updateCount() {
   const ready = n > 0 && !spinning;
   $('lever').disabled = !ready; $('spinBtn').disabled = !ready;
   if (origin) showHand();
-  if (origin && !spinning) setStatus(`${n} spots within ${f.radius} mi of ${origin.label}`);
+  if (origin && !spinning) setStatus(n <= 2 ? `Only ${n} spot${n === 1 ? '' : 's'} fit${n === 1 ? 's' : ''} within ${f.radius} mi. Loosen a filter?` : `${n} spots within ${f.radius} mi of ${origin.label}`);
 }
 
 // Far mode: a uniformly random point inside the circle, then a normal-sized query around it.
@@ -1038,7 +1039,8 @@ function randomPointWithin(o, radiusMi) {
 async function farPool(radiusMi) {
   if (SOURCE === 'google' && WORKER_URL) {
     for (let i = 0; i < 4; i++) {
-      const spot = randomPointWithin(origin, Math.max(0, radiusMi - SPOT_MI));
+      let spot = randomPointWithin(origin, Math.max(0, radiusMi - SPOT_MI));
+      for (let t = 0; t < 10 && haversineMi(origin, spot) < FAR_MI; t++) spot = randomPointWithin(origin, Math.max(0, radiusMi - SPOT_MI));
       setStatus(`Scouting ${Math.round(haversineMi(origin, spot))} mi out…`);
       try { const list = await fetchNearby(spot, SPOT_MI); detectChains(list); const pool = filterPool(list); if (pool.length) return pool; } catch {}
     }
@@ -1226,6 +1228,16 @@ function showPickOne() {
 async function spin() {
   if (spinning || !origin) return;
   if (pullsLeft() <= 0) { showPickOne(); bulbs('idle'); return; }
+  // A pool of one is an answer, not a spin: show it without spending a pull.
+  if (!isFar()) {
+    const pool0 = candidates();
+    if (pool0.length === 1) {
+      const only = pool0[0]; only.dist = haversineMi(origin, only);
+      showResult(only);
+      $('result').insertAdjacentHTML('afterbegin', `<p class="onlyNote">Only one place fits your filters right now. Widen the radius or loosen a filter for more.</p>`);
+      return;
+    }
+  }
   spinning = true;
   $('lever').disabled = true; $('spinBtn').disabled = true;
   let pool;
